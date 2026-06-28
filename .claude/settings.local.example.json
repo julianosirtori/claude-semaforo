@@ -1,0 +1,25 @@
+{
+  "$comment": "Claude Semáforo — copy to .claude/settings.local.json (or ~/.claude/) and set SEMAFORO_TOKEN in your environment. On Windows native, replace the command with: powershell -NoProfile -File \"$env:USERPROFILE\\.claude\\notify.ps1\"",
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "bash \"$HOME/.claude/notify.sh\"" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "bash \"$HOME/.claude/notify.sh\"" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "bash \"$HOME/.claude/notify.sh\"" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "bash \"$HOME/.claude/notify.sh\"" }] }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash \"$HOME/.claude/notify.sh\"", "timeout": 620 }
+        ]
+      }
+    ]
+  }
+}

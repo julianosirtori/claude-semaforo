@@ -14,6 +14,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - platform: macos-latest # universal .dmg (Apple Silicon + Intel)
+            args: "--target universal-apple-darwin"
           - platform: ubuntu-22.04 # .deb + .AppImage
             args: ""
           - platform: windows-latest # .exe (NSIS) + .msi
@@ -45,6 +47,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2

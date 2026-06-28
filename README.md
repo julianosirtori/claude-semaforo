@@ -39,6 +39,8 @@ Grab the installer for your OS from the [Releases](https://github.com/julianosir
 - **Windows** — `.exe` (NSIS). First run may ask to allow the port through the firewall.
 - **Linux** — `.deb` or `.AppImage`.
 
+Step-by-step walkthrough (PT-BR), with troubleshooting: [INSTALL.md](./INSTALL.md).
+
 ### Build from source
 
 Requires Node 20+ and the Rust toolchain (plus the usual Tauri system deps).

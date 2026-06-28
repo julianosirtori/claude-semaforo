@@ -9,9 +9,13 @@ interface Props {
   onCopyToken: () => void;
   onRegenToken: () => void;
   regenSpinning: boolean;
+  hooksInstalled: boolean;
+  installing: boolean;
+  onInstallHooks: () => void;
+  onQuit: () => void;
 }
 
-export function ConfigView({ config, onPatch, onCopyToken, onRegenToken, regenSpinning }: Props) {
+export function ConfigView({ config, onPatch, onCopyToken, onRegenToken, regenSpinning, hooksInstalled, installing, onInstallHooks, onQuit }: Props) {
   return (
     <>
       <div className="cfg">
@@ -41,6 +45,27 @@ export function ConfigView({ config, onPatch, onCopyToken, onRegenToken, regenSp
               />
               <div className="help">0.0.0.0 alcança containers. 127.0.0.1 tranca tudo no host.</div>
             </div>
+          </div>
+        </div>
+
+        <div className="cfg__divider" />
+
+        {/* Claude Code */}
+        <div>
+          <div className="cfg__h">Claude Code</div>
+          <div className="cfgrow">
+            <div style={{ minWidth: 0 }}>
+              <div className="cfgrow__t">Hooks {hooksInstalled ? "instalados" : "não instalados"}</div>
+              <div className="cfgrow__s">escreve notify em ~/.claude e registra os eventos</div>
+            </div>
+            <span style={{ marginLeft: "auto" }} />
+            <button
+              className="cfgbtn"
+              onClick={(e) => { e.stopPropagation(); onInstallHooks(); }}
+              disabled={installing}
+            >
+              {installing ? "Instalando…" : hooksInstalled ? "Reinstalar" : "Instalar"}
+            </button>
           </div>
         </div>
 
@@ -109,11 +134,15 @@ export function ConfigView({ config, onPatch, onCopyToken, onRegenToken, regenSp
             </div>
           </div>
         </div>
+
+        <button className="cfgbtn cfgbtn--quit" onClick={(e) => { e.stopPropagation(); onQuit(); }}>
+          Sair do Claude Semáforo
+        </button>
       </div>
 
       <div className="cfg-ft">
-        <span className="cfg-ft__repo">github.com/voce/claude-semaforo</span>
-        <a className="cfg-ft__docs" href="https://github.com/voce/claude-semaforo" target="_blank" rel="noreferrer">Docs →</a>
+        <span className="cfg-ft__repo">github.com/julianosirtori/claude-semaforo</span>
+        <a className="cfg-ft__docs" href="https://github.com/julianosirtori/claude-semaforo" target="_blank" rel="noreferrer">Docs →</a>
       </div>
     </>
   );

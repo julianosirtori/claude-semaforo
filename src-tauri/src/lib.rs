@@ -1,12 +1,15 @@
 mod commands;
 mod config;
 mod server;
+mod setup;
 mod state;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, PhysicalPosition, WebviewWindow};
 
 use state::{now_ms, AppState, Inner};
@@ -57,6 +60,11 @@ pub fn run() {
                 let _ = window.show();
             }
 
+            // The window has no taskbar entry, so the tray is the way to quit.
+            if let Err(e) = build_tray(app) {
+                eprintln!("[semaforo] tray setup failed: {e}");
+            }
+
             if autostart {
                 commands::apply_autostart(&handle, true);
             }
@@ -73,6 +81,9 @@ pub fn run() {
             commands::regenerate_token,
             commands::reveal_token,
             commands::save_window,
+            commands::install_hooks,
+            commands::hooks_installed,
+            commands::quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -93,6 +104,41 @@ fn position_window(window: &WebviewWindow, saved: (Option<i32>, Option<i32>)) {
         let y = mpos.y + msize.height as i32 - size.height as i32 - margin;
         let _ = window.set_position(PhysicalPosition::new(x, y));
     }
+}
+
+/// System tray: left-click toggles the panel, right-click opens a Quit menu.
+fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    let Some(icon) = app.default_window_icon().cloned() else {
+        return Ok(());
+    };
+    let toggle = MenuItem::with_id(app, "toggle", "Abrir / fechar painel", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&toggle, &quit])?;
+
+    TrayIconBuilder::with_id("semaforo")
+        .icon(icon)
+        .tooltip("Claude Semáforo")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "quit" => app.exit(0),
+            "toggle" => {
+                let _ = app.emit("toggle-panel", ());
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let _ = tray.app_handle().emit("toggle-panel", ());
+            }
+        })
+        .build(app)?;
+    Ok(())
 }
 
 /// Drop sessions that have gone quiet for a while.

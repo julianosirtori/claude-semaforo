@@ -23,6 +23,10 @@ interface Props {
   onPatch: (patch: Partial<AppConfig>) => void;
   onCopyToken: () => void;
   onRegenToken: () => void;
+  hooksInstalled: boolean;
+  installing: boolean;
+  onInstallHooks: () => void;
+  onQuit: () => void;
   onAllow: (id: string) => void;
   onAlways: (id: string) => void;
   onDeny: (id: string) => void;
@@ -118,6 +122,10 @@ export function Panel(p: Props) {
             onCopyToken={p.onCopyToken}
             onRegenToken={p.onRegenToken}
             regenSpinning={p.regenSpinning}
+            hooksInstalled={p.hooksInstalled}
+            installing={p.installing}
+            onInstallHooks={p.onInstallHooks}
+            onQuit={p.onQuit}
           />
         )}
       </div>

@@ -34,7 +34,7 @@ Every request must carry `Authorization: Bearer <token>`.
 
 ## Install
 
-Grab the installer for your OS from the [Releases](https://github.com/voce/claude-semaforo/releases):
+Grab the installer for your OS from the [Releases](https://github.com/julianosirtori/claude-semaforo/releases):
 
 - **Windows** — `.exe` (NSIS). First run may ask to allow the port through the firewall.
 - **Linux** — `.deb` or `.AppImage`.
@@ -50,6 +50,12 @@ npm run tauri build    # produce installers in src-tauri/target/release/bundle
 ```
 
 ## Wiring the hooks
+
+**Easiest (host, native):** open the pill → gear → **Claude Code → Instalar**.
+That writes `notify.sh`/`notify.ps1` and the token to `~/.claude/`, and merges
+the five hooks into `~/.claude/settings.json` (keeping any hooks you already
+have). Regenerating the token keeps working without reinstalling. The manual
+steps below are for containers and remote workspaces.
 
 1. Copy the hook script next to your Claude config:
 
@@ -98,6 +104,12 @@ Open the pill → gear:
   the system, and OS notifications when a session turns 🔴.
 
 Environment overrides: `SEMAFORO_TOKEN`, `SEMAFORO_BIND` (e.g. `127.0.0.1:7337`).
+
+## Quitting
+
+The widget has no taskbar entry, so quit it from the **system tray** (right-click
+the tray icon → **Sair**) or from the pill → gear → **Sair do Claude Semáforo**.
+Left-clicking the tray icon toggles the panel.
 
 ## Development
 

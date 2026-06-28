@@ -25,7 +25,6 @@ const PERMISSION_TIMEOUT: Duration = Duration::from_secs(600);
 pub struct ServerHandle {
     running: Arc<AtomicBool>,
     join: Option<JoinHandle<()>>,
-    pub bind: String,
 }
 
 impl ServerHandle {
@@ -48,7 +47,6 @@ pub fn start(bind: &str, inner: Arc<Mutex<Inner>>, app: AppHandle) -> Option<Ser
         }
     };
     let running = Arc::new(AtomicBool::new(true));
-    let bind_owned = bind.to_string();
 
     let join = thread::spawn({
         let running = running.clone();
@@ -70,7 +68,6 @@ pub fn start(bind: &str, inner: Arc<Mutex<Inner>>, app: AppHandle) -> Option<Ser
     Some(ServerHandle {
         running,
         join: Some(join),
-        bind: bind_owned,
     })
 }
 

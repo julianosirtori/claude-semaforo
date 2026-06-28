@@ -16,6 +16,15 @@ export interface Api {
   regenerateToken(): Promise<string>;
   revealToken(): Promise<string>;
   saveWindow(x: number, y: number): Promise<void>;
+  installHooks(): Promise<InstallReport>;
+  hooksInstalled(): Promise<boolean>;
+  quit(): Promise<void>;
+  onToggle(cb: () => void): () => void;
+}
+
+export interface InstallReport {
+  claudeDir: string;
+  settingsPath: string;
 }
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -62,6 +71,25 @@ function tauriApi(): Api {
     async saveWindow(x, y) {
       const { invoke } = await core();
       await invoke("save_window", { x, y });
+    },
+    async installHooks() {
+      const { invoke } = await core();
+      return invoke<InstallReport>("install_hooks");
+    },
+    async hooksInstalled() {
+      const { invoke } = await core();
+      return invoke<boolean>("hooks_installed");
+    },
+    async quit() {
+      const { invoke } = await core();
+      await invoke("quit_app");
+    },
+    onToggle(cb) {
+      let unlisten: (() => void) | undefined;
+      event().then(async ({ listen }) => {
+        unlisten = await listen("toggle-panel", () => cb());
+      });
+      return () => unlisten?.();
     },
   };
 }
@@ -149,6 +177,10 @@ function mockApi(): Api {
     async regenerateToken() { config.token = "csf_" + Math.random().toString(16).slice(2).padEnd(16, "0").slice(0, 16); emit(); return config.token; },
     async revealToken() { return config.token; },
     async saveWindow() { /* no-op in the browser */ },
+    async installHooks() { return { claudeDir: "~/.claude", settingsPath: "~/.claude/settings.json" }; },
+    async hooksInstalled() { return false; },
+    async quit() { /* no-op in the browser */ },
+    onToggle() { return () => {}; },
   };
 }
 

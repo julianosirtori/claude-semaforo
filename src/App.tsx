@@ -25,6 +25,8 @@ export default function App() {
   const [flashId, setFlashId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [regenSpinning, setRegenSpinning] = useState(false);
+  const [hooksInstalled, setHooksInstalled] = useState(false);
+  const [installing, setInstalling] = useState(false);
 
   const prevUpdated = useRef<Map<string, number>>(new Map());
   const restored = useRef(false);
@@ -83,6 +85,12 @@ export default function App() {
     return () => clearInterval(iv);
   }, []);
 
+  // Tray (or its menu) toggles the panel.
+  useEffect(() => api.onToggle(() => setOpen((o) => !o)), []);
+
+  // Reflect whether the Claude Code hooks are already wired up.
+  useEffect(() => { api.hooksInstalled().then(setHooksInstalled).catch(() => {}); }, []);
+
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     clearTimeout(toastTimer.current);
@@ -114,6 +122,21 @@ export default function App() {
     finally { setTimeout(() => setRegenSpinning(false), 600); }
   }, [showToast]);
 
+  const onInstallHooks = useCallback(async () => {
+    setInstalling(true);
+    try {
+      const report = await api.installHooks();
+      setHooksInstalled(true);
+      showToast(`Hooks instalados em ${report.claudeDir}`);
+    } catch {
+      showToast("Não consegui instalar os hooks");
+    } finally {
+      setInstalling(false);
+    }
+  }, [showToast]);
+
+  const onQuit = useCallback(() => { api.quit(); }, []);
+
   if (!snapshot) return <div className="app" />;
 
   const d = derive(snapshot.sessions);
@@ -135,6 +158,10 @@ export default function App() {
         onPatch={onPatch}
         onCopyToken={onCopyToken}
         onRegenToken={onRegenToken}
+        hooksInstalled={hooksInstalled}
+        installing={installing}
+        onInstallHooks={onInstallHooks}
+        onQuit={onQuit}
         onAllow={(id) => respond(id, "allow")}
         onAlways={onAlways}
         onDeny={(id) => respond(id, "deny")}

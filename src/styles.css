@@ -229,6 +229,12 @@ body {
 .cfg-ft__repo { font: 500 11px 'JetBrains Mono'; color: var(--muted-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cfg-ft__docs { margin-left: auto; font: 600 11.5px 'Hanken Grotesk'; color: var(--accent); text-decoration: none; cursor: pointer; flex: none; }
 
+.cfgbtn { font: 600 11px 'Hanken Grotesk'; color: #fff; background: var(--accent); border: none; border-radius: 8px; padding: 7px 13px; cursor: pointer; flex: none; transition: filter .15s, opacity .15s; }
+.cfgbtn:hover { filter: brightness(1.07); }
+.cfgbtn:disabled { opacity: .55; cursor: default; }
+.cfgbtn--quit { width: 100%; margin-top: 2px; color: var(--wait-chip-tx); background: transparent; border: 1px solid var(--deny-border); padding: 9px 0; }
+.cfgbtn--quit:hover { background: var(--wait-chip-bg); filter: none; }
+
 /* ---------- Toast ---------- */
 .toast { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; background: #231f18; color: #f5f0e8; font: 600 12px 'Hanken Grotesk'; padding: 9px 15px; border-radius: 10px; box-shadow: 0 10px 30px rgba(40,33,24,.35); animation: cs-rise .2s ease; white-space: nowrap; }
 .toast__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ready); }

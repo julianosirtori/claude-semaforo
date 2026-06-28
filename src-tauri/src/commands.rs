@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::config;
 use crate::server;
+use crate::setup::{self, InstallReport};
 use crate::state::{now_ms, AppState, Config, ConfigPatch, Decision, SessionState, Snapshot};
 
 fn push(app: &AppHandle, state: &AppState) {
@@ -137,8 +138,27 @@ pub fn regenerate_token(state: State<AppState>, app: AppHandle) -> String {
         g.config.token = token.clone();
         config::save(&app, &g.config);
     }
+    setup::sync_token(&token); // keep an installed hook setup working
     push(&app, &state);
     token
+}
+
+/// Write the hook scripts + token to ~/.claude and merge the hooks into
+/// ~/.claude/settings.json so every Claude Code session reports here.
+#[tauri::command]
+pub fn install_hooks(state: State<AppState>, app: AppHandle) -> Result<InstallReport, String> {
+    let token = state.inner.lock().unwrap().config.token.clone();
+    setup::install(&app, &token)
+}
+
+#[tauri::command]
+pub fn hooks_installed() -> bool {
+    setup::is_installed()
+}
+
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 #[tauri::command]

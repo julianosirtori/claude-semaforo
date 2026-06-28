@@ -11,8 +11,16 @@
 $ErrorActionPreference = 'SilentlyContinue'
 
 $payload = [Console]::In.ReadToEnd()
-$token = if ($env:SEMAFORO_TOKEN) { $env:SEMAFORO_TOKEN } else { 'troque-este-token' }
-$port  = if ($env:SEMAFORO_PORT)  { $env:SEMAFORO_PORT }  else { '7337' }
+
+# Token: SEMAFORO_TOKEN env wins, else ~/.claude/semaforo.token (written by the
+# app's "Instalar hooks" button), else a placeholder.
+$token = $env:SEMAFORO_TOKEN
+if (-not $token) {
+  $tokenFile = Join-Path $env:USERPROFILE '.claude\semaforo.token'
+  if (Test-Path $tokenFile) { $token = (Get-Content $tokenFile -Raw -ErrorAction SilentlyContinue).Trim() }
+}
+if (-not $token) { $token = 'troque-este-token' }
+$port = if ($env:SEMAFORO_PORT) { $env:SEMAFORO_PORT } else { '7337' }
 
 $isPerm  = $payload -match '"hook_event_name"\s*:\s*"PreToolUse"'
 $path    = if ($isPerm) { '/permission' } else { '/events' }

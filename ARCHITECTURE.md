@@ -116,6 +116,7 @@ isso vira no-op fora do Tauri.
 | `config.rs`    | persistência da config em JSON e geração de token                       |
 | `server.rs`    | listener HTTP, autenticação, `/events`, `/permission`                   |
 | `commands.rs`  | os comandos expostos ao frontend                                        |
+| `setup.rs`     | instalação 1-clique dos hooks no `~/.claude` (escreve scripts + mescla o settings.json) |
 
 ### Modelo de estado
 
@@ -196,8 +197,24 @@ estourar o timeout de 600s sem decisão, responde `ask`. O timeout padrão do
   efeitos colaterais: trocar o bind reinicia o servidor, mexer no "sempre no
   topo" chama a janela, ligar/desligar o autostart chama o plugin.
 - `regenerate_token` / `reveal_token` → gera um token novo / devolve o atual (pro
-  botão de copiar).
+  botão de copiar). Ao regenerar, sincroniza o `~/.claude/semaforo.token` se os
+  hooks já estiverem instalados.
 - `save_window(x, y)` → persiste o canto da janela.
+- `install_hooks` / `hooks_installed` → escreve `notify.sh`/`notify.ps1` + token em
+  `~/.claude` e mescla os cinco hooks no `~/.claude/settings.json`, preservando os
+  seus hooks e sendo idempotente (a lógica de merge é pura e testada). O comando
+  monta o comando certo por SO: `bash notify.sh` no Linux, `powershell ... notify.ps1`
+  no Windows.
+- `quit_app` → encerra o app.
+
+## Setup automático e como fechar (setup.rs + tray)
+
+Como a janela não tem entrada na barra de tarefas nem botão de fechar, tem uma
+**system tray**: clique esquerdo abre/fecha o painel, clique direito tem **Sair**.
+A config também tem um botão **Instalar** (liga os hooks do Claude Code de uma vez)
+e um **Sair do Claude Semáforo**. O token vai pra um arquivo `~/.claude/semaforo.token`
+que os scripts leem, então regenerar o token não exige reinstalar. Containers e
+workspaces remotos continuam no passo manual (o app escreve no `~/.claude` do host).
 
 ### Persistência e config (`config.rs`)
 

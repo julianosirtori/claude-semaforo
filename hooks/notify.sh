@@ -12,7 +12,13 @@
 
 set -uo pipefail
 
-TOKEN="${SEMAFORO_TOKEN:-troque-este-token}"
+# Token: SEMAFORO_TOKEN env wins, else ~/.claude/semaforo.token (written by the
+# app's "Instalar hooks" button), else a placeholder.
+TOKEN="${SEMAFORO_TOKEN:-}"
+if [ -z "$TOKEN" ] && [ -f "$HOME/.claude/semaforo.token" ]; then
+  TOKEN="$(tr -d '\r\n' < "$HOME/.claude/semaforo.token" 2>/dev/null)"
+fi
+TOKEN="${TOKEN:-troque-este-token}"
 PORT="${SEMAFORO_PORT:-7337}"
 payload="$(cat)"
 

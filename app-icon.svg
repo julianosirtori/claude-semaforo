@@ -1,0 +1,38 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Claude Semáforo app icon: the in-app Glyph scaled up.
+       Dark rounded housing + three traffic-light dots (wait/work/ready).
+       Regenerate every size with: npm run tauri icon app-icon.svg -->
+  <defs>
+    <linearGradient id="housing" x1="300" y1="120" x2="724" y2="904" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2C2820"/>
+      <stop offset="1" stop-color="#15120E"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="512" y1="100" x2="512" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="gloss" cx="0.36" cy="0.30" r="0.75">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.26"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Housing -->
+  <rect x="100" y="100" width="824" height="824" rx="215" ry="215" fill="url(#housing)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="213.5" ry="213.5" fill="none" stroke="#3A3329" stroke-opacity="0.6" stroke-width="3"/>
+  <rect x="100" y="100" width="824" height="824" rx="215" ry="215" fill="url(#sheen)"/>
+
+  <!-- wait -->
+  <circle cx="512" cy="252" r="108" fill="#E5484D" fill-opacity="0.16"/>
+  <circle cx="512" cy="252" r="92" fill="#E5484D"/>
+  <circle cx="512" cy="252" r="92" fill="url(#gloss)"/>
+  <!-- work -->
+  <circle cx="512" cy="512" r="108" fill="#E89B1C" fill-opacity="0.16"/>
+  <circle cx="512" cy="512" r="92" fill="#E89B1C"/>
+  <circle cx="512" cy="512" r="92" fill="url(#gloss)"/>
+  <!-- ready -->
+  <circle cx="512" cy="772" r="108" fill="#2FA968" fill-opacity="0.16"/>
+  <circle cx="512" cy="772" r="92" fill="#2FA968"/>
+  <circle cx="512" cy="772" r="92" fill="url(#gloss)"/>
+</svg>

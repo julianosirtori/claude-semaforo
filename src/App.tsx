@@ -4,6 +4,7 @@ import { applyOpen, beginDrag, restorePosition } from "./window";
 import { derive, type Decision, type AppConfig, type Snapshot, type SessionState } from "./types";
 import { Pill } from "./components/Pill";
 import { Panel } from "./components/Panel";
+import notifyScript from "../hooks/notify.sh?raw";
 
 const BADGE_VAR: Record<SessionState, string> = {
   waiting: "var(--wait)",
@@ -76,8 +77,13 @@ export default function App() {
     }
   }, [snapshot?.config.theme, snapshot?.config.accent]);
 
-  // Resize the window between pill and panel.
-  useEffect(() => { if (restored.current) applyOpen(open); }, [open]);
+  // The window is a fixed size and never resizes (no transparent-resize
+  // flicker); opening just informs the backend (for click-through) while the
+  // panel animates in via CSS.
+  useEffect(() => {
+    if (!restored.current) return;
+    applyOpen(open);
+  }, [open]);
 
   // Tick relative timestamps.
   useEffect(() => {
@@ -113,6 +119,48 @@ export default function App() {
       const token = await api.revealToken();
       await navigator.clipboard.writeText(token);
       showToast("Token copiado");
+    } catch { showToast("Não consegui copiar"); }
+  }, [showToast]);
+
+  // Copy a self-contained bootstrap to wire a devcontainer to the host: it
+  // writes the token, the notify.sh hook, and the hooks settings — each under
+  // its ~/.claude path. The container reaches the host via host.docker.internal.
+  const onCopyContainer = useCallback(async () => {
+    try {
+      const token = await api.revealToken();
+      const cmd = 'bash "$HOME/.claude/notify.sh"';
+      const settings = {
+        hooks: {
+          UserPromptSubmit: [{ hooks: [{ type: "command", command: cmd }] }],
+          Notification: [{ hooks: [{ type: "command", command: cmd }] }],
+          PostToolUse: [{ hooks: [{ type: "command", command: cmd }] }],
+          Stop: [{ hooks: [{ type: "command", command: cmd }] }],
+          SessionEnd: [{ hooks: [{ type: "command", command: cmd }] }],
+          PreToolUse: [{ matcher: "Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch|WebSearch|mcp__.*", hooks: [{ type: "command", command: cmd, timeout: 620 }] }],
+        },
+      };
+      const bootstrap = [
+        "# Claude Semáforo — rode dentro do devcontainer pra reportar pro host.",
+        "# O container alcança o host em host.docker.internal:7337.",
+        "mkdir -p ~/.claude",
+        "",
+        "# ~/.claude/semaforo.token",
+        `printf '%s' '${token}' > ~/.claude/semaforo.token`,
+        "",
+        "# ~/.claude/notify.sh",
+        "cat > ~/.claude/notify.sh <<'NOTIFY_EOF'",
+        notifyScript.replace(/\r?\n$/, ""),
+        "NOTIFY_EOF",
+        "chmod +x ~/.claude/notify.sh",
+        "",
+        "# ~/.claude/settings.json (hooks)",
+        "cat > ~/.claude/settings.json <<'SETTINGS_EOF'",
+        JSON.stringify(settings, null, 2),
+        "SETTINGS_EOF",
+        "",
+      ].join("\n");
+      await navigator.clipboard.writeText(bootstrap);
+      showToast("Setup do container copiado");
     } catch { showToast("Não consegui copiar"); }
   }, [showToast]);
 
@@ -161,6 +209,7 @@ export default function App() {
         hooksInstalled={hooksInstalled}
         installing={installing}
         onInstallHooks={onInstallHooks}
+        onCopyContainer={onCopyContainer}
         onQuit={onQuit}
         onAllow={(id) => respond(id, "allow")}
         onAlways={onAlways}

@@ -26,6 +26,7 @@ interface Props {
   hooksInstalled: boolean;
   installing: boolean;
   onInstallHooks: () => void;
+  onCopyContainer: () => void;
   onQuit: () => void;
   onAllow: (id: string) => void;
   onAlways: (id: string) => void;
@@ -100,6 +101,7 @@ export function Panel(p: Props) {
                       flash={p.flashId === s.id}
                       nowMs={p.nowMs}
                       draft={p.drafts[s.id] ?? ""}
+                      replyText={cfg.replyText}
                       onDraft={(v) => p.onDraft(s.id, v)}
                       onAllow={() => p.onAllow(s.id)}
                       onAlways={() => p.onAlways(s.id)}
@@ -125,6 +127,7 @@ export function Panel(p: Props) {
             hooksInstalled={p.hooksInstalled}
             installing={p.installing}
             onInstallHooks={p.onInstallHooks}
+            onCopyContainer={p.onCopyContainer}
             onQuit={p.onQuit}
           />
         )}

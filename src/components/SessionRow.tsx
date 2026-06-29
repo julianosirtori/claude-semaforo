@@ -5,6 +5,7 @@ interface Props {
   flash: boolean;
   nowMs: number;
   draft: string;
+  replyText: boolean; // SDK-mode: only then can a free-text ask be answered from the pill
   onDraft: (v: string) => void;
   onAllow: () => void;
   onAlways: () => void;
@@ -12,7 +13,7 @@ interface Props {
   onSend: () => void;
 }
 
-export function SessionRow({ session: s, flash, nowMs, draft, onDraft, onAllow, onAlways, onDeny, onSend }: Props) {
+export function SessionRow({ session: s, flash, nowMs, draft, replyText, onDraft, onAllow, onAlways, onDeny, onSend }: Props) {
   const isPerm = s.state === "waiting" && s.reqKind === "perm";
   const isAsk = s.state === "waiting" && s.reqKind === "ask";
 
@@ -43,7 +44,7 @@ export function SessionRow({ session: s, flash, nowMs, draft, onDraft, onAllow, 
             </>
           )}
 
-          {isAsk && (
+          {isAsk && (replyText ? (
             <>
               <div className="reply">
                 <input
@@ -57,7 +58,11 @@ export function SessionRow({ session: s, flash, nowMs, draft, onDraft, onAllow, 
               </div>
               <div className="note">resposta em texto roda no modo SDK</div>
             </>
-          )}
+          ) : (
+            // Interactive (non-SDK) sessions have no channel back, so don't offer
+            // a dead text field — point the user at the terminal instead.
+            <div className="reply-terminal">responda no seu terminal ↵</div>
+          ))}
         </div>
       </div>
     </div>

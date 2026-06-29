@@ -12,10 +12,11 @@ interface Props {
   hooksInstalled: boolean;
   installing: boolean;
   onInstallHooks: () => void;
+  onCopyContainer: () => void;
   onQuit: () => void;
 }
 
-export function ConfigView({ config, onPatch, onCopyToken, onRegenToken, regenSpinning, hooksInstalled, installing, onInstallHooks, onQuit }: Props) {
+export function ConfigView({ config, onPatch, onCopyToken, onRegenToken, regenSpinning, hooksInstalled, installing, onInstallHooks, onCopyContainer, onQuit }: Props) {
   return (
     <>
       <div className="cfg">
@@ -53,19 +54,29 @@ export function ConfigView({ config, onPatch, onCopyToken, onRegenToken, regenSp
         {/* Claude Code */}
         <div>
           <div className="cfg__h">Claude Code</div>
-          <div className="cfgrow">
-            <div style={{ minWidth: 0 }}>
-              <div className="cfgrow__t">Hooks {hooksInstalled ? "instalados" : "não instalados"}</div>
-              <div className="cfgrow__s">escreve notify em ~/.claude e registra os eventos</div>
+          <div className="cfg__group">
+            <div className="cfgrow">
+              <div style={{ minWidth: 0 }}>
+                <div className="cfgrow__t">Hooks {hooksInstalled ? "instalados" : "não instalados"}</div>
+                <div className="cfgrow__s">escreve notify em ~/.claude e registra os eventos</div>
+              </div>
+              <span style={{ marginLeft: "auto" }} />
+              <button
+                className="cfgbtn"
+                onClick={(e) => { e.stopPropagation(); onInstallHooks(); }}
+                disabled={installing}
+              >
+                {installing ? "Instalando…" : hooksInstalled ? "Reinstalar" : "Instalar"}
+              </button>
             </div>
-            <span style={{ marginLeft: "auto" }} />
-            <button
-              className="cfgbtn"
-              onClick={(e) => { e.stopPropagation(); onInstallHooks(); }}
-              disabled={installing}
-            >
-              {installing ? "Instalando…" : hooksInstalled ? "Reinstalar" : "Instalar"}
-            </button>
+            <div className="cfgrow">
+              <div style={{ minWidth: 0 }}>
+                <div className="cfgrow__t">Devcontainer</div>
+                <div className="cfgrow__s">notify.sh + token + hooks num só script</div>
+              </div>
+              <span style={{ marginLeft: "auto" }} />
+              <button className="cfgbtn" onClick={(e) => { e.stopPropagation(); onCopyContainer(); }}>Copiar</button>
+            </div>
           </div>
         </div>
 

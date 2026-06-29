@@ -4,16 +4,12 @@ interface Props {
   session: Session;
   flash: boolean;
   nowMs: number;
-  draft: string;
-  replyText: boolean; // SDK-mode: only then can a free-text ask be answered from the pill
-  onDraft: (v: string) => void;
   onAllow: () => void;
   onAlways: () => void;
   onDeny: () => void;
-  onSend: () => void;
 }
 
-export function SessionRow({ session: s, flash, nowMs, draft, replyText, onDraft, onAllow, onAlways, onDeny, onSend }: Props) {
+export function SessionRow({ session: s, flash, nowMs, onAllow, onAlways, onDeny }: Props) {
   const isPerm = s.state === "waiting" && s.reqKind === "perm";
   const isAsk = s.state === "waiting" && s.reqKind === "ask";
 
@@ -44,25 +40,11 @@ export function SessionRow({ session: s, flash, nowMs, draft, replyText, onDraft
             </>
           )}
 
-          {isAsk && (replyText ? (
-            <>
-              <div className="reply">
-                <input
-                  className="reply__in"
-                  value={draft}
-                  onChange={(e) => onDraft(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") onSend(); }}
-                  placeholder="Responder o Claude…"
-                />
-                <button className="btn btn--send" onClick={onSend}>Enviar</button>
-              </div>
-              <div className="note">resposta em texto roda no modo SDK</div>
-            </>
-          ) : (
-            // Interactive (non-SDK) sessions have no channel back, so don't offer
-            // a dead text field — point the user at the terminal instead.
+          {isAsk && (
+            // A generic "ask" (from a Notification) has no channel back to the
+            // pill, so point the user at the terminal.
             <div className="reply-terminal">responda no seu terminal ↵</div>
-          ))}
+          )}
         </div>
       </div>
     </div>

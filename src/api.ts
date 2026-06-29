@@ -11,7 +11,6 @@ export interface Api {
   getSnapshot(): Promise<Snapshot>;
   subscribe(cb: Listener): () => void;
   respond(id: string, decision: Decision): Promise<void>;
-  replyText(id: string, text: string): Promise<void>;
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
   regenerateToken(): Promise<string>;
   revealToken(): Promise<string>;
@@ -52,10 +51,6 @@ function tauriApi(): Api {
     async respond(id, decision) {
       const { invoke } = await core();
       await invoke("respond", { sessionId: id, decision });
-    },
-    async replyText(id, text) {
-      const { invoke } = await core();
-      await invoke("reply_text", { sessionId: id, text });
     },
     async setConfig(patch) {
       const { invoke } = await core();
@@ -114,7 +109,6 @@ function mockApi(): Api {
     notify: true,
     sound: true,
     replyPerm: true,
-    replyText: false,
     token: "csf_demo_3f9a1c84e07b25d6",
   };
 
@@ -178,7 +172,6 @@ function mockApi(): Api {
     async getSnapshot() { return snap(); },
     subscribe(cb) { listeners.add(cb); cb(snap()); return () => listeners.delete(cb); },
     async respond(id, decision) { if (decision === "deny") deny(id); else allow(id); },
-    async replyText(id) { deny(id); },
     async setConfig(p) { Object.assign(config, p); emit(); return { ...config }; },
     async regenerateToken() { config.token = "csf_" + Math.random().toString(16).slice(2).padEnd(16, "0").slice(0, 16); emit(); return config.token; },
     async revealToken() { return config.token; },

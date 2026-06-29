@@ -55,7 +55,6 @@ pub struct Config {
     #[serde(default = "default_true")]
     pub sound: bool,
     pub reply_perm: bool,
-    pub reply_text: bool,
     pub token: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub win_x: Option<i32>,
@@ -74,7 +73,6 @@ impl Default for Config {
             notify: true,
             sound: true,
             reply_perm: true,
-            reply_text: false,
             token: String::new(),
             win_x: None,
             win_y: None,
@@ -94,7 +92,6 @@ pub struct ConfigPatch {
     pub notify: Option<bool>,
     pub sound: Option<bool>,
     pub reply_perm: Option<bool>,
-    pub reply_text: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -121,11 +118,21 @@ impl Decision {
     }
 }
 
+/// A currently-held PreToolUse request: the channel that answers it, plus the
+/// allow-rule key it would create on "always". The key is the precise,
+/// untruncated identity of the call (full path / arguments) so an "always" can't
+/// blanket-approve unrelated calls. It lives here, not on `Session`, because it
+/// only matters while the request is held.
+pub struct Pending {
+    pub tx: Sender<Decision>,
+    pub rule_key: String,
+}
+
 pub struct Inner {
     pub sessions: HashMap<String, Session>,
     pub config: Config,
-    /// session_id -> responder for a currently-held PreToolUse request.
-    pub pending: HashMap<String, Sender<Decision>>,
+    /// session_id -> the currently-held PreToolUse request for that session.
+    pub pending: HashMap<String, Pending>,
     /// Commands the user chose to always allow.
     pub allow_rules: HashSet<String>,
 }
@@ -134,10 +141,11 @@ impl Inner {
     pub fn snapshot(&self) -> Snapshot {
         let mut sessions: Vec<Session> = self.sessions.values().cloned().collect();
         sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        Snapshot {
-            sessions,
-            config: self.config.clone(),
-        }
+        // The token is fetched on demand via `reveal_token`; never broadcast it
+        // in every snapshot event, where it would surface in DevTools and logs.
+        let mut config = self.config.clone();
+        config.token.clear();
+        Snapshot { sessions, config }
     }
 }
 
@@ -192,16 +200,28 @@ mod tests {
         let value = serde_json::to_value(Config::default()).unwrap();
         assert!(value.get("alwaysOnTop").is_some());
         assert!(value.get("replyPerm").is_some());
-        assert!(value.get("replyText").is_some());
     }
 
     #[test]
     fn config_patch_deserializes_camel_case() {
         let patch: ConfigPatch =
-            serde_json::from_str(r#"{ "replyText": true, "alwaysOnTop": false }"#).unwrap();
-        assert_eq!(patch.reply_text, Some(true));
+            serde_json::from_str(r#"{ "replyPerm": true, "alwaysOnTop": false }"#).unwrap();
+        assert_eq!(patch.reply_perm, Some(true));
         assert_eq!(patch.always_on_top, Some(false));
         assert_eq!(patch.bind, None);
+    }
+
+    #[test]
+    fn snapshot_omits_token() {
+        let config = Config { token: "csf_secret".into(), ..Config::default() };
+        let inner = Inner {
+            sessions: HashMap::new(),
+            config,
+            pending: HashMap::new(),
+            allow_rules: HashSet::new(),
+        };
+        // The token must never ride along in the broadcast snapshot.
+        assert_eq!(inner.snapshot().config.token, "");
     }
 
     #[test]

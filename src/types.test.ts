@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { derive, relTime, type Session } from "./types";
+import { derive, nextCue, relTime, type Session, type SessionState } from "./types";
 
 function session(id: string, state: Session["state"]): Session {
   return { id, folder: id, cwd: `/x/${id}`, container: false, state, reqKind: null, cmd: null, lastMsg: "", updatedAt: 0 };
+}
+
+function prev(...pairs: [string, SessionState][]): Map<string, SessionState> {
+  return new Map(pairs);
 }
 
 describe("derive", () => {
@@ -37,6 +41,35 @@ describe("derive", () => {
 
   it("uses the singular for a lone session", () => {
     expect(derive([session("a", "working")]).headerSub).toBe("1 sessão · 1 trabalhando");
+  });
+});
+
+describe("nextCue", () => {
+  it("cues a session appearing already in waiting (the bug fix)", () => {
+    // First event is the permission prompt: no prior state, still must chime.
+    expect(nextCue(prev(), [session("a", "waiting")])).toBe("waiting");
+  });
+
+  it("does not cue a session appearing in ready", () => {
+    expect(nextCue(prev(), [session("a", "ready")])).toBe(null);
+  });
+
+  it("cues on transitions into waiting and ready", () => {
+    expect(nextCue(prev(["a", "working"]), [session("a", "waiting")])).toBe("waiting");
+    expect(nextCue(prev(["a", "working"]), [session("a", "ready")])).toBe("ready");
+  });
+
+  it("stays quiet when nothing changed", () => {
+    expect(nextCue(prev(["a", "waiting"]), [session("a", "waiting")])).toBe(null);
+    expect(nextCue(prev(["a", "ready"]), [session("a", "ready")])).toBe(null);
+  });
+
+  it("lets waiting win over a simultaneous ready", () => {
+    const cue = nextCue(prev(["a", "working"], ["b", "working"]), [
+      session("a", "ready"),
+      session("b", "waiting"),
+    ]);
+    expect(cue).toBe("waiting");
   });
 });
 

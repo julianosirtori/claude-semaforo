@@ -23,10 +23,12 @@ pub fn respond(session_id: String, decision: String, state: State<AppState>, app
     {
         let mut g = state.inner.lock().unwrap();
 
-        let rule = g.sessions.get(&session_id).and_then(|s| s.cmd.clone());
+        // The "always" rule key lives on the held request, not on the truncated
+        // display label — read it from there before we drop the responder.
         if decision == "always" {
-            if let Some(cmd) = rule {
-                g.allow_rules.insert(cmd);
+            if let Some(key) = g.pending.get(&session_id).map(|p| p.rule_key.clone()) {
+                g.allow_rules.insert(key);
+                config::save_allow_rules(&app, &g.allow_rules);
             }
         }
 
@@ -44,30 +46,8 @@ pub fn respond(session_id: String, decision: String, state: State<AppState>, app
             s.updated_at = now_ms();
         }
 
-        if let Some(tx) = g.pending.remove(&session_id) {
-            let _ = tx.send(dec);
-        }
-    }
-    push(&app, &state);
-}
-
-#[tauri::command]
-pub fn reply_text(session_id: String, text: String, state: State<AppState>, app: AppHandle) {
-    {
-        let mut g = state.inner.lock().unwrap();
-        if let Some(s) = g.sessions.get_mut(&session_id) {
-            s.state = SessionState::Working;
-            s.req_kind = None;
-            s.cmd = None;
-            s.last_msg = if text.trim().is_empty() {
-                "Voltando ao trabalho…".into()
-            } else {
-                "Voltando ao trabalho…".into()
-            };
-            s.updated_at = now_ms();
-        }
-        if let Some(tx) = g.pending.remove(&session_id) {
-            let _ = tx.send(Decision::Ask);
+        if let Some(p) = g.pending.remove(&session_id) {
+            let _ = p.tx.send(dec);
         }
     }
     push(&app, &state);
@@ -112,7 +92,6 @@ pub fn set_config(patch: ConfigPatch, state: State<AppState>, app: AppHandle) ->
         if let Some(v) = patch.notify { c.notify = v; }
         if let Some(v) = patch.sound { c.sound = v; }
         if let Some(v) = patch.reply_perm { c.reply_perm = v; }
-        if let Some(v) = patch.reply_text { c.reply_text = v; }
 
         config::save(&app, c);
         c.clone()

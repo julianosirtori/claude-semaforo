@@ -179,13 +179,6 @@ body {
 .btn--deny { font-weight: 600; font-size: 11px; color: var(--wait-chip-tx); background: var(--field-bg); border: 1px solid var(--deny-border); padding: 7px 11px; }
 .btn--deny:hover { background: var(--wait-chip-bg); }
 
-.reply { display: flex; gap: 6px; margin-top: 8px; }
-.reply__in { flex: 1; min-width: 0; font: 500 12px 'Hanken Grotesk'; color: var(--ink); background: var(--field-bg); border: 1px solid var(--btn-border); border-radius: 8px; padding: 7px 10px; outline: none; transition: border-color .15s; }
-.reply__in:focus { border-color: var(--accent); }
-.reply__in::placeholder { color: var(--faint); }
-.btn--send { font-weight: 700; font-size: 11px; color: #fff; background: var(--accent); padding: 7px 13px; transition: filter .15s; }
-.btn--send:hover { filter: brightness(1.07); }
-.note { font: 400 9.5px 'JetBrains Mono'; color: var(--faint-2); margin-top: 5px; }
 .reply-terminal { margin-top: 8px; font: 500 10.5px 'JetBrains Mono'; color: var(--code-text); background: var(--code-bg); border-radius: 7px; padding: 7px 9px; }
 
 .ft { display: flex; align-items: center; gap: 8px; padding: 10px 15px; border-top: 1px solid var(--divider); }

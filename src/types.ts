@@ -27,7 +27,6 @@ export interface AppConfig {
   notify: boolean;
   sound: boolean; // play a tone when a session flips to waiting/ready
   replyPerm: boolean; // allow/deny from the pill via the HTTP PreToolUse hook
-  replyText: boolean; // free-text reply (requires SDK-mode sessions)
   token: string; // masked in the UI; revealed only on copy
   winX?: number; // persisted window corner (not shown in UI)
   winY?: number;
@@ -85,6 +84,26 @@ export function derive(sessions: Session[]): Derived {
     hasWait: counts.waiting > 0,
     headerSub: `${total} ${total === 1 ? "sessão" : "sessões"} · ${badgeCount} ${COUNT_WORD[worst]}`,
   };
+}
+
+// Which sound cue (if any) a snapshot warrants, given the previous per-session
+// states. Waiting wins over ready. A session that appears already in waiting
+// (resumed with --continue, pre-existing, or back after the sweeper) cues too;
+// ready only cues on an actual transition, so a reappearing done session stays
+// quiet.
+export function nextCue(
+  prev: Map<string, SessionState>,
+  sessions: Session[],
+): "waiting" | "ready" | null {
+  let cue: "waiting" | "ready" | null = null;
+  for (const s of sessions) {
+    const was = prev.get(s.id);
+    const appeared = was === undefined;
+    const transitioned = !appeared && was !== s.state;
+    if (s.state === "waiting" && (appeared || transitioned)) cue = "waiting";
+    else if (s.state === "ready" && transitioned && cue !== "waiting") cue = "ready";
+  }
+  return cue;
 }
 
 // Relative time in the design's clipped style: "agora", "40 s", "3 min", "2 h".

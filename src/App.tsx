@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { applyOpen, beginDrag, restorePosition } from "./window";
-import { derive, type Decision, type AppConfig, type Snapshot, type SessionState } from "./types";
+import { derive, nextCue, type Decision, type AppConfig, type Snapshot, type SessionState } from "./types";
 import { Pill } from "./components/Pill";
 import { Panel } from "./components/Panel";
 import { playState } from "./sound";
@@ -22,7 +22,6 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"list" | "config">("list");
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -37,22 +36,17 @@ export default function App() {
   const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Subscribe to backend snapshots; flash whichever session just changed and
-  // sound a cue for transitions into waiting/ready (waiting wins if both happen).
+  // sound a cue for sessions entering waiting/ready (waiting wins if both happen).
   useEffect(() => {
     return api.subscribe((snap) => {
       let changed: { id: string; at: number } | null = null;
-      let cue: SessionState | null = null;
       for (const s of snap.sessions) {
         const prevAt = prevUpdated.current.get(s.id);
         if (prevAt !== undefined && s.updatedAt > prevAt && (!changed || s.updatedAt > changed.at)) {
           changed = { id: s.id, at: s.updatedAt };
         }
-        const wasState = prevState.current.get(s.id);
-        if (wasState !== undefined && wasState !== s.state && (s.state === "waiting" || s.state === "ready")) {
-          if (s.state === "waiting") cue = "waiting";
-          else if (cue !== "waiting") cue = "ready";
-        }
       }
+      const cue = nextCue(prevState.current, snap.sessions);
       prevUpdated.current = new Map(snap.sessions.map((s) => [s.id, s.updatedAt]));
       prevState.current = new Map(snap.sessions.map((s) => [s.id, s.state]));
       if (changed) {
@@ -119,11 +113,6 @@ export default function App() {
 
   const respond = useCallback((id: string, decision: Decision) => { api.respond(id, decision); }, []);
   const onAlways = useCallback((id: string) => { api.respond(id, "always"); showToast("Regra criada · sempre permitir"); }, [showToast]);
-  const onSend = useCallback((id: string) => {
-    const text = (drafts[id] ?? "").trim();
-    api.replyText(id, text);
-    setDrafts((dr) => ({ ...dr, [id]: "" }));
-  }, [drafts]);
 
   const onCopyToken = useCallback(async () => {
     try {
@@ -209,7 +198,6 @@ export default function App() {
         derived={d}
         flashId={flashId}
         nowMs={nowMs}
-        drafts={drafts}
         regenSpinning={regenSpinning}
         onShowConfig={() => { setView("config"); setOpen(true); }}
         onShowList={() => setView("list")}
@@ -225,8 +213,6 @@ export default function App() {
         onAllow={(id) => respond(id, "allow")}
         onAlways={onAlways}
         onDeny={(id) => respond(id, "deny")}
-        onSend={onSend}
-        onDraft={(id, v) => setDrafts((dr) => ({ ...dr, [id]: v }))}
       />
 
       {!open && d.hasWait && <div className="nudge">clique pra abrir</div>}

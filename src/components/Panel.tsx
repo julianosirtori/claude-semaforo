@@ -15,7 +15,6 @@ interface Props {
   derived: Derived;
   flashId: string | null;
   nowMs: number;
-  drafts: Record<string, string>;
   regenSpinning: boolean;
   onShowConfig: () => void;
   onShowList: () => void;
@@ -31,8 +30,6 @@ interface Props {
   onAllow: (id: string) => void;
   onAlways: (id: string) => void;
   onDeny: (id: string) => void;
-  onSend: (id: string) => void;
-  onDraft: (id: string, v: string) => void;
 }
 
 export function Panel(p: Props) {
@@ -100,13 +97,9 @@ export function Panel(p: Props) {
                       session={s}
                       flash={p.flashId === s.id}
                       nowMs={p.nowMs}
-                      draft={p.drafts[s.id] ?? ""}
-                      replyText={cfg.replyText}
-                      onDraft={(v) => p.onDraft(s.id, v)}
                       onAllow={() => p.onAllow(s.id)}
                       onAlways={() => p.onAlways(s.id)}
                       onDeny={() => p.onDeny(s.id)}
-                      onSend={() => p.onSend(s.id)}
                     />
                   ))}
               </div>

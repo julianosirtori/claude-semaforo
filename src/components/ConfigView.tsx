@@ -94,14 +94,6 @@ export function ConfigView({ config, onPatch, onCopyToken, onRegenToken, regenSp
               <span style={{ marginLeft: "auto" }} />
               <Toggle on={config.replyPerm} onChange={(v) => onPatch({ replyPerm: v })} />
             </div>
-            <div className="cfgrow">
-              <div style={{ minWidth: 0 }}>
-                <div className="cfgrow__t">Responder em texto</div>
-                <div className="cfgrow__s">requer sessões em modo SDK</div>
-              </div>
-              <span style={{ marginLeft: "auto" }} />
-              <Toggle on={config.replyText} onChange={(v) => onPatch({ replyText: v })} />
-            </div>
           </div>
         </div>
 

@@ -67,8 +67,9 @@ React puro, sem framework de UI. CSS com variáveis pra tema, sem Tailwind.
 `App` chama `api.subscribe(cb)`. Em Tauri, isso escuta o evento `snapshot` emitido
 pelo Rust e também busca o estado inicial via `invoke("get_state")`. Cada
 `Snapshot` é `{ sessions, config }`. O `App` guarda o último snapshot, deriva o
-resto na hora do render, e dispara ações com `api.respond / replyText / setConfig
-/ regenerateToken / saveWindow`.
+resto na hora do render, e dispara ações com `api.respond / setConfig /
+regenerateToken / saveWindow`. O `token` nunca viaja no snapshot (a UI busca sob
+demanda via `reveal_token`), pra não aparecer em todo evento emitido à webview.
 
 O **flash** (aquele realce sutil na linha que mudou) é calculado no frontend:
 quando chega um snapshot novo, o `App` compara o `updatedAt` de cada sessão com o
@@ -159,13 +160,16 @@ timing. Sem token válido, `401`.
 |-------------------------|-----------------------------------------------------|
 | `UserPromptSubmit`      | 🟡 working                                          |
 | `Notification`          | 🔴 waiting (pergunta genérica)                      |
-| `Stop` / `SubagentStop` | 🟢 ready, lendo a última mensagem do transcript     |
+| `Stop`                  | 🟢 ready, lendo a última mensagem do transcript     |
 | `SessionEnd`            | remove a sessão                                     |
 
 A pasta vem do basename do `cwd`. O `container` é inferido pelo header
 `X-Semaforo-Container: 1` que o hook manda, ou, como fallback, por o IP de origem
-não ser loopback. A última mensagem no `Stop` é lida do `transcript_path` quando
-ele é acessível do host (melhor esforço; em container cai num texto genérico).
+não ser loopback; uma vez detectado como container, fica travado, pra um evento
+do host depois não fazer o badge piscar. A última mensagem no `Stop` é lida do
+`transcript_path` quando ele é acessível do host (melhor esforço; em container
+cai num texto genérico), confinada a `~/.claude/projects/` e lendo só o fim do
+arquivo.
 
 **`POST /permission`** é o pulo do gato. Recebe o payload de um hook `PreToolUse`,
 extrai o comando/ferramenta, e:
@@ -189,17 +193,17 @@ a thread do HTTP acorda e devolve:
 ```
 
 `allow` libera a tool de verdade, `deny` bloqueia, `ask` cai no prompt nativo. Se
-estourar o timeout de 600s sem decisão, responde `ask`. O timeout padrão do
-`PreToolUse` no Claude Code é 600s, então tem folga pra decisão humana.
+estourar o timeout de 600s sem decisão, responde `ask` **e** reseta a sessão pra
+🟡 working ("Tempo esgotado — responda no terminal."), pra pílula não ficar com um
+🔴 fantasma. O timeout padrão do `PreToolUse` no Claude Code é 600s, então tem
+folga pra decisão humana.
 
 ### Comandos (`commands.rs`)
 
 - `get_state` → devolve o `Snapshot` atual.
 - `respond(session_id, decision)` → `"allow" | "deny" | "always"`. Atualiza a
   sessão pra working, manda a decisão pela request segurada, e no caso de
-  `always` grava a regra de auto-permitir.
-- `reply_text(session_id, text)` → atualiza a sessão; o texto só tem efeito real
-  em sessões no modo SDK.
+  `always` grava (e persiste) a regra de auto-permitir.
 - `get_config` / `set_config(patch)` → lê/grava a config. `set_config` trata os
   efeitos colaterais: trocar o bind reinicia o servidor, mexer no "sempre no
   topo" chama a janela, ligar/desligar o autostart chama o plugin.
@@ -227,7 +231,12 @@ workspaces remotos continuam no passo manual (o app escreve no `~/.claude` do ho
 
 A config é um JSON em `app_config_dir()/config.json`. Na primeira execução, gera
 um token aleatório (`csf_` + 16 bytes do RNG do sistema, em hex). As variáveis de
-ambiente `SEMAFORO_TOKEN` e `SEMAFORO_BIND` sobrescrevem em runtime.
+ambiente `SEMAFORO_TOKEN` e `SEMAFORO_BIND` sobrescrevem em runtime. As regras de
+"Sempre permitir" vivem num sidecar próprio (`allow_rules.json`), separado da
+config pra que rotação de token não cause churn no arquivo de regras, e são
+carregadas no boot — então um "Sempre" sobrevive a reinício. No Unix, o
+`config.json` (que embute o token) e o `~/.claude/semaforo.token` são gravados com
+permissão `0o600`.
 
 ### Limpeza (sweeper)
 
@@ -265,9 +274,17 @@ janela (canto salvo ou inferior direito do monitor) e a torna visível. Plugins:
 
 ## Segurança
 
-- Token Bearer obrigatório em todo request, comparado em tempo constante.
+- Token Bearer obrigatório em todo request, comparado em tempo constante. Nunca
+  vai no snapshot emitido à webview; a UI o busca sob demanda via `reveal_token`.
 - Bind configurável: `0.0.0.0:7337` alcança containers; `127.0.0.1:7337` tranca
   tudo no host.
+- Body dos POSTs com teto (256 KB no `/permission`, 64 KB no `/events`) pra um
+  container autenticado-mas-hostil não derrubar o widget por OOM.
+- A regra de "Sempre permitir" usa a identidade precisa da chamada (caminho
+  completo, args canônicos), não um rótulo truncado — então aprovar uma chamada
+  não libera outra parecida.
+- Leitura de `transcript_path` confinada a `~/.claude/projects/` (sem `..`).
+- No Unix, token e config ficam `0o600`.
 - A primeira execução no Windows pode pedir liberação da porta no firewall.
 
 ## Build e release
@@ -279,19 +296,23 @@ janela (canto salvo ou inferior direito do monitor) e a torna visível. Plugins:
 
 ## Testes
 
-- Backend: `cargo test` cobre as funções puras (basename, descrição da tool,
-  comparação em tempo constante, leitura do transcript, serialização camelCase da
-  config, mapeamento de evento → estado, regras de "sempre permitir").
+- Backend: `cargo test` cobre as funções puras (basename, rótulo vs. chave da
+  tool, comparação em tempo constante, parsing/confinamento do transcript, teto de
+  body, serialização camelCase da config, snapshot sem token, mapeamento de
+  evento → estado, latch do container, não-flash do `has_pending`, reset no
+  timeout, persistência das regras).
 - Frontend: `npm test` (vitest) cobre o `derive()` (pior estado, contadores,
-  subtítulo) e o `relTime()`.
+  subtítulo), o `nextCue()` (cue sonoro, waiting na primeira aparição) e o
+  `relTime()`.
 
 ## Decisões e pontos de atenção
 
 - **`tiny_http` em vez de axum**: menos dependências, e o modelo de uma thread por
   request casa bem com o long-poll do `/permission`.
-- **Resposta em texto** (`reply_text`) só tem efeito de verdade em sessões no modo
-  SDK; em sessão interativa, o `Notification` não tem canal de volta. A UI deixa
-  isso explícito ("resposta em texto roda no modo SDK").
+- **Sessões em `Ask`** (vindas de `Notification`) não têm canal de volta com o
+  protocolo de hooks atual — o `/events` é fire-and-forget. A pílula só aponta
+  "responda no seu terminal". Responder em texto exigiria um hook que segura a
+  resposta, como o `/permission` faz.
 - **Fontes via Google Fonts** (`@import` no CSS) com fallback pro sistema. Pra uso
   100% offline, o próximo passo é empacotar as fontes localmente.
 - **Detecção de container** é heurística (header do hook + IP de origem). O header

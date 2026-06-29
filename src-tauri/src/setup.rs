@@ -33,7 +33,7 @@ pub struct InstallReport {
     pub settings_path: String,
 }
 
-fn home_dir() -> Option<PathBuf> {
+pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)
@@ -112,7 +112,9 @@ pub fn install(_app: &AppHandle, token: &str) -> Result<InstallReport, String> {
 
     fs::write(dir.join("notify.sh"), NOTIFY_SH).map_err(|e| e.to_string())?;
     fs::write(dir.join("notify.ps1"), NOTIFY_PS1).map_err(|e| e.to_string())?;
-    fs::write(dir.join("semaforo.token"), token).map_err(|e| e.to_string())?;
+    let token_path = dir.join("semaforo.token");
+    fs::write(&token_path, token).map_err(|e| e.to_string())?;
+    crate::config::restrict_owner_only(&token_path);
 
     #[cfg(unix)]
     {
@@ -150,8 +152,8 @@ pub fn is_installed() -> bool {
 pub fn sync_token(token: &str) {
     if let Some(dir) = claude_dir() {
         let path = dir.join("semaforo.token");
-        if path.exists() {
-            let _ = fs::write(path, token);
+        if path.exists() && fs::write(&path, token).is_ok() {
+            crate::config::restrict_owner_only(&path);
         }
     }
 }

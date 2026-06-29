@@ -4,6 +4,7 @@ import { applyOpen, beginDrag, restorePosition } from "./window";
 import { derive, type Decision, type AppConfig, type Snapshot, type SessionState } from "./types";
 import { Pill } from "./components/Pill";
 import { Panel } from "./components/Panel";
+import { playState } from "./sound";
 import notifyScript from "../hooks/notify.sh?raw";
 
 const BADGE_VAR: Record<SessionState, string> = {
@@ -30,26 +31,36 @@ export default function App() {
   const [installing, setInstalling] = useState(false);
 
   const prevUpdated = useRef<Map<string, number>>(new Map());
+  const prevState = useRef<Map<string, SessionState>>(new Map());
   const restored = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Subscribe to backend snapshots; flash whichever session just changed.
+  // Subscribe to backend snapshots; flash whichever session just changed and
+  // sound a cue for transitions into waiting/ready (waiting wins if both happen).
   useEffect(() => {
     return api.subscribe((snap) => {
       let changed: { id: string; at: number } | null = null;
+      let cue: SessionState | null = null;
       for (const s of snap.sessions) {
-        const prev = prevUpdated.current.get(s.id);
-        if (prev !== undefined && s.updatedAt > prev && (!changed || s.updatedAt > changed.at)) {
+        const prevAt = prevUpdated.current.get(s.id);
+        if (prevAt !== undefined && s.updatedAt > prevAt && (!changed || s.updatedAt > changed.at)) {
           changed = { id: s.id, at: s.updatedAt };
+        }
+        const wasState = prevState.current.get(s.id);
+        if (wasState !== undefined && wasState !== s.state && (s.state === "waiting" || s.state === "ready")) {
+          if (s.state === "waiting") cue = "waiting";
+          else if (cue !== "waiting") cue = "ready";
         }
       }
       prevUpdated.current = new Map(snap.sessions.map((s) => [s.id, s.updatedAt]));
+      prevState.current = new Map(snap.sessions.map((s) => [s.id, s.state]));
       if (changed) {
         setFlashId(changed.id);
         clearTimeout(flashTimer.current);
         flashTimer.current = setTimeout(() => setFlashId(null), 780);
       }
+      if (cue && snap.config.sound) playState(cue);
       setSnapshot(snap);
     });
   }, []);

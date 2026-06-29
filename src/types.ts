@@ -25,6 +25,7 @@ export interface AppConfig {
   alwaysOnTop: boolean;
   autostart: boolean;
   notify: boolean;
+  sound: boolean; // play a tone when a session flips to waiting/ready
   replyPerm: boolean; // allow/deny from the pill via the HTTP PreToolUse hook
   replyText: boolean; // free-text reply (requires SDK-mode sessions)
   token: string; // masked in the UI; revealed only on copy

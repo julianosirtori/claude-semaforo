@@ -110,6 +110,7 @@ pub fn set_config(patch: ConfigPatch, state: State<AppState>, app: AppHandle) ->
             c.autostart = v;
         }
         if let Some(v) = patch.notify { c.notify = v; }
+        if let Some(v) = patch.sound { c.sound = v; }
         if let Some(v) = patch.reply_perm { c.reply_perm = v; }
         if let Some(v) = patch.reply_text { c.reply_text = v; }
 

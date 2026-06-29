@@ -75,6 +75,13 @@ quando chega um snapshot novo, o `App` compara o `updatedAt` de cada sessão com
 anterior e realça por 780ms a que mudou. Isso vale tanto pro Tauri quanto pro
 mock, sem o backend precisar sinalizar nada.
 
+O **som** segue o mesmo caminho: no mesmo diff de snapshot, o `App` compara o
+estado anterior de cada sessão e, quando alguma vira 🔴 waiting ou 🟢 ready (com
+`config.sound` ligado), toca um tom sintetizado via Web Audio (`sound.ts`, sem
+arquivos de áudio). Waiting tem prioridade quando os dois acontecem no mesmo
+snapshot. É distinto do plugin `notification` do backend, que só dispara aviso do
+SO quando vira 🔴.
+
 ### Tema
 
 `styles.css` define a paleta inteira em variáveis no `:root` (claro) e

@@ -143,6 +143,14 @@ export function ConfigView({ config, onPatch, onCopyToken, onRegenToken, regenSp
               <span style={{ marginLeft: "auto" }} />
               <Toggle on={config.notify} onChange={(v) => onPatch({ notify: v })} />
             </div>
+            <div className="cfgrow">
+              <div style={{ minWidth: 0 }}>
+                <div className="cfgrow__t">Som ao mudar de estado</div>
+                <div className="cfgrow__s">tom quando te espera ou fica pronto</div>
+              </div>
+              <span style={{ marginLeft: "auto" }} />
+              <Toggle on={config.sound} onChange={(v) => onPatch({ sound: v })} />
+            </div>
           </div>
         </div>
 

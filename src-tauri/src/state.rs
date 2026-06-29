@@ -37,6 +37,10 @@ pub struct Session {
     pub updated_at: i64,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -46,6 +50,10 @@ pub struct Config {
     pub always_on_top: bool,
     pub autostart: bool,
     pub notify: bool,
+    // Sound cue when a session flips to waiting/ready. `default` keeps configs
+    // written before this field existed from resetting to all-defaults on load.
+    #[serde(default = "default_true")]
+    pub sound: bool,
     pub reply_perm: bool,
     pub reply_text: bool,
     pub token: String,
@@ -64,6 +72,7 @@ impl Default for Config {
             always_on_top: true,
             autostart: false,
             notify: true,
+            sound: true,
             reply_perm: true,
             reply_text: false,
             token: String::new(),
@@ -83,6 +92,7 @@ pub struct ConfigPatch {
     pub always_on_top: Option<bool>,
     pub autostart: Option<bool>,
     pub notify: Option<bool>,
+    pub sound: Option<bool>,
     pub reply_perm: Option<bool>,
     pub reply_text: Option<bool>,
 }

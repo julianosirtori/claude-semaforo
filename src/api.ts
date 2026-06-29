@@ -112,6 +112,7 @@ function mockApi(): Api {
     alwaysOnTop: true,
     autostart: false,
     notify: true,
+    sound: true,
     replyPerm: true,
     replyText: false,
     token: "csf_demo_3f9a1c84e07b25d6",

@@ -162,7 +162,11 @@ fn str_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 
 fn handle_events(req: Request, inner: &Arc<Mutex<Inner>>, app: &AppHandle, payload: &Value) {
     let event = str_field(payload, "hook_event_name").unwrap_or("").to_string();
-    let session_id = str_field(payload, "session_id").unwrap_or("unknown").to_string();
+    let Some(session_id) = str_field(payload, "session_id").map(str::to_string) else {
+        eprintln!("[semaforo] /events without session_id (event={event}) — ignoring");
+        let _ = req.respond(json_response(200, json!({ "ok": true })));
+        return;
+    };
     let cwd = str_field(payload, "cwd").unwrap_or("").to_string();
     let container = is_container(&req, payload);
     let provided_msg = str_field(payload, "message").map(|s| s.to_string());
@@ -202,6 +206,27 @@ fn apply_event(
         return None;
     }
 
+    if event == "PostToolUse" {
+        // A tool finished. Only un-stick a session stranded in waiting (e.g. a
+        // permission answered in the terminal, which has no channel back to the
+        // pill). Leave working/ready sessions alone so we don't bump updated_at
+        // and flash the row on every tool call.
+        if let Some(s) = g.sessions.get_mut(session_id) {
+            if s.state == SessionState::Waiting {
+                s.state = SessionState::Working;
+                s.req_kind = None;
+                s.cmd = None;
+                s.last_msg = "Voltando ao trabalho…".into();
+                s.updated_at = now_ms();
+            }
+        }
+        return None;
+    }
+
+    // A held /permission owns this session's prompt; a later Notification must
+    // not downgrade its allow/deny buttons into a generic text Ask.
+    let has_pending = g.pending.contains_key(session_id);
+
     let folder: String = if cwd.is_empty() {
         session_id.chars().take(8).collect()
     } else {
@@ -234,10 +259,12 @@ fn apply_event(
             entry.last_msg = provided_msg.unwrap_or_else(|| "Pensando…".into());
         }
         "Notification" => {
-            entry.state = SessionState::Waiting;
-            entry.req_kind = Some(ReqKind::Ask);
-            entry.last_msg = provided_msg.unwrap_or_else(|| "Esperando você.".into());
-            became_waiting = Some(entry.folder.clone());
+            if !has_pending {
+                entry.state = SessionState::Waiting;
+                entry.req_kind = Some(ReqKind::Ask);
+                entry.last_msg = provided_msg.unwrap_or_else(|| "Esperando você.".into());
+                became_waiting = Some(entry.folder.clone());
+            }
         }
         "Stop" | "SubagentStop" => {
             entry.state = SessionState::Ready;
@@ -257,7 +284,24 @@ fn apply_event(
 }
 
 fn handle_permission(req: Request, inner: &Arc<Mutex<Inner>>, app: &AppHandle, payload: &Value) {
-    let session_id = str_field(payload, "session_id").unwrap_or("unknown").to_string();
+    let Some(session_id) = str_field(payload, "session_id").map(str::to_string) else {
+        eprintln!("[semaforo] /permission without session_id — deferring to Claude Code");
+        let _ = req.respond(permission_response(Decision::Ask));
+        return;
+    };
+
+    // Only sessions in "default" mode are actually prompted by Claude Code. In
+    // auto / acceptEdits / bypassPermissions / plan / dontAsk modes it wouldn't
+    // ask, so defer instead of gating — otherwise an auto-mode session that
+    // never wanted a prompt shows a false 🔴 "te esperando".
+    match str_field(payload, "permission_mode") {
+        Some("default") | None => {}
+        Some(_) => {
+            let _ = req.respond(permission_response(Decision::Ask));
+            return;
+        }
+    }
+
     let cwd = str_field(payload, "cwd").unwrap_or("").to_string();
     let container = is_container(&req, payload);
     let tool_name = str_field(payload, "tool_name").unwrap_or("Tool");
@@ -307,7 +351,11 @@ fn handle_permission(req: Request, inner: &Arc<Mutex<Inner>>, app: &AppHandle, p
         entry.state = SessionState::Waiting;
         entry.req_kind = Some(ReqKind::Perm);
         entry.cmd = Some(cmd.clone());
-        entry.last_msg = format!("Permissão: {tool_name}");
+        entry.last_msg = if tool_name == "Bash" {
+            "Quer rodar um comando".to_string()
+        } else {
+            format!("Quer usar {tool_name}")
+        };
         entry.updated_at = now_ms();
 
         let (tx, rx) = channel::<Decision>();
@@ -534,5 +582,62 @@ mod tests {
         let payload = json!({ "transcript_path": path.to_string_lossy() });
         assert_eq!(last_assistant_message(&payload).as_deref(), Some("Refiz a hero."));
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn post_tool_use_unsticks_waiting_session() {
+        // A permission left the session waiting (answered in the terminal, with
+        // no channel back to the pill). Once the tool runs, it's working again.
+        let mut g = inner();
+        apply_event(&mut g, "Notification", "s1", "/x/api", false, Some("posso?".into()), &Value::Null);
+        assert!(matches!(g.sessions.get("s1").unwrap().state, SessionState::Waiting));
+
+        apply_event(&mut g, "PostToolUse", "s1", "/x/api", false, None, &Value::Null);
+        let s = g.sessions.get("s1").unwrap();
+        assert!(matches!(s.state, SessionState::Working));
+        assert!(s.req_kind.is_none());
+    }
+
+    #[test]
+    fn post_tool_use_leaves_non_waiting_untouched() {
+        // A tool finishing mid-turn must not bump updated_at (which would flash
+        // the row) when the session isn't stuck waiting.
+        let mut g = inner();
+        apply_event(&mut g, "Stop", "s1", "/x/api", false, Some("feito".into()), &Value::Null);
+        g.sessions.get_mut("s1").unwrap().updated_at = 123;
+
+        apply_event(&mut g, "PostToolUse", "s1", "/x/api", false, None, &Value::Null);
+        let s = g.sessions.get("s1").unwrap();
+        assert!(matches!(s.state, SessionState::Ready));
+        assert_eq!(s.updated_at, 123);
+    }
+
+    #[test]
+    fn notification_keeps_held_permission() {
+        // A /permission is held for the session (rich allow/deny prompt). A
+        // Notification arriving for the same session must not clobber it into a
+        // generic text Ask, which would replace the buttons with a text field.
+        let mut g = inner();
+        g.sessions.insert(
+            "s1".into(),
+            Session {
+                id: "s1".into(),
+                folder: "api".into(),
+                cwd: "/x/api".into(),
+                container: false,
+                state: SessionState::Waiting,
+                req_kind: Some(ReqKind::Perm),
+                cmd: Some("rm -rf x".into()),
+                last_msg: "Quer rodar um comando".into(),
+                updated_at: 1,
+            },
+        );
+        let (tx, _rx) = channel::<Decision>();
+        g.pending.insert("s1".into(), tx);
+
+        apply_event(&mut g, "Notification", "s1", "/x/api", false, Some("posso?".into()), &Value::Null);
+        let s = g.sessions.get("s1").unwrap();
+        assert!(matches!(s.req_kind, Some(ReqKind::Perm)));
+        assert_eq!(s.cmd.as_deref(), Some("rm -rf x"));
     }
 }

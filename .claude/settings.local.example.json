@@ -7,6 +7,9 @@
     "Notification": [
       { "hooks": [{ "type": "command", "command": "bash \"$HOME/.claude/notify.sh\"" }] }
     ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "bash \"$HOME/.claude/notify.sh\"" }] }
+    ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "bash \"$HOME/.claude/notify.sh\"" }] }
     ],
@@ -15,7 +18,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch|WebSearch|mcp__.*",
         "hooks": [
           { "type": "command", "command": "bash \"$HOME/.claude/notify.sh\"", "timeout": 620 }
         ]

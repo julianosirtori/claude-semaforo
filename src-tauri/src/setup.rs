@@ -12,7 +12,19 @@ use tauri::AppHandle;
 const NOTIFY_SH: &str = include_str!("../../hooks/notify.sh");
 const NOTIFY_PS1: &str = include_str!("../../hooks/notify.ps1");
 
-const STATE_EVENTS: [&str; 4] = ["UserPromptSubmit", "Notification", "Stop", "SessionEnd"];
+/// Tools gated through the pill's allow/deny prompt (held via /permission).
+/// Read-only tools (Read/Glob/Grep/LS) are intentionally excluded so they don't
+/// block waiting for a click; permissive modes are deferred server-side anyway.
+const PERM_MATCHER: &str = "Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch|WebSearch|mcp__.*";
+
+/// Lifecycle events posted to /events (state only, no permission decision).
+const STATE_EVENTS: [&str; 5] = [
+    "UserPromptSubmit",
+    "Notification",
+    "PostToolUse",
+    "Stop",
+    "SessionEnd",
+];
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,13 +72,13 @@ fn is_our_group(group: &Value) -> bool {
 
 fn our_group(event: &str, command: &str) -> Value {
     if event == "PreToolUse" {
-        json!({ "matcher": "Bash", "hooks": [{ "type": "command", "command": command, "timeout": 620 }] })
+        json!({ "matcher": PERM_MATCHER, "hooks": [{ "type": "command", "command": command, "timeout": 620 }] })
     } else {
         json!({ "hooks": [{ "type": "command", "command": command }] })
     }
 }
 
-/// Merge our five hooks into an existing settings object, replacing any prior
+/// Merge our hooks into an existing settings object, replacing any prior
 /// Semáforo entries and preserving everything else. Pure and idempotent.
 pub fn build_settings(mut existing: Value, command: &str) -> Value {
     if !existing.is_object() {
@@ -149,14 +161,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builds_all_five_hooks_from_empty() {
+    fn builds_all_hooks_from_empty() {
         let out = build_settings(json!({}), "bash notify.sh");
         let hooks = out["hooks"].as_object().unwrap();
-        for event in ["UserPromptSubmit", "Notification", "Stop", "SessionEnd", "PreToolUse"] {
+        for event in ["UserPromptSubmit", "Notification", "PostToolUse", "Stop", "SessionEnd", "PreToolUse"] {
             assert!(hooks.contains_key(event), "missing {event}");
         }
-        assert_eq!(hooks["PreToolUse"][0]["matcher"], "Bash");
+        assert_eq!(hooks["PreToolUse"][0]["matcher"], PERM_MATCHER);
         assert_eq!(hooks["PreToolUse"][0]["hooks"][0]["timeout"], 620);
+        assert_eq!(hooks["PostToolUse"][0]["hooks"][0]["command"], "bash notify.sh");
         assert_eq!(hooks["Stop"][0]["hooks"][0]["command"], "bash notify.sh");
     }
 

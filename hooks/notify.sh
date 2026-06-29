@@ -43,7 +43,7 @@ fi
 
 resp=""
 for base in $bases; do
-  if resp="$(curl -fsS -m "$timeout" -X POST "${base}${path}" \
+  if resp="$(curl -fsS --connect-timeout 2 -m "$timeout" -X POST "${base}${path}" \
       -H "Authorization: Bearer ${TOKEN}" \
       -H "Content-Type: application/json" \
       -H "X-Semaforo-Container: ${container_flag}" \

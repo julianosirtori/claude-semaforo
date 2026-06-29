@@ -73,6 +73,13 @@ pub fn reply_text(session_id: String, text: String, state: State<AppState>, app:
     push(&app, &state);
 }
 
+/// The frontend reports panel open/close so the click-through poller knows
+/// whether the whole window is interactive or only the collapsed pill corner.
+#[tauri::command]
+pub fn set_panel_open(open: bool, state: State<AppState>) {
+    state.panel_open.store(open, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[tauri::command]
 pub fn get_config(state: State<AppState>) -> Config {
     state.inner.lock().unwrap().config.clone()

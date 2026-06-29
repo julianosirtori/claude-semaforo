@@ -5,6 +5,7 @@ mod setup;
 mod state;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -48,10 +49,12 @@ pub fn run() {
                 allow_rules: HashSet::new(),
             }));
 
+            let panel_open = Arc::new(AtomicBool::new(false));
             let server = server::start(&bind, inner.clone(), handle.clone());
             app.manage(AppState {
                 inner: inner.clone(),
                 server: Mutex::new(server),
+                panel_open: panel_open.clone(),
             });
 
             if let Some(window) = app.get_webview_window("main") {
@@ -59,6 +62,10 @@ pub fn run() {
                 position_window(&window, saved);
                 let _ = window.show();
             }
+
+            // The window never resizes (no transparent-resize flicker); instead a
+            // poller makes everything but the pill corner click-through.
+            spawn_clickthrough(handle.clone(), panel_open);
 
             // The window has no taskbar entry, so the tray is the way to quit.
             if let Err(e) = build_tray(app) {
@@ -78,6 +85,7 @@ pub fn run() {
             commands::reply_text,
             commands::get_config,
             commands::set_config,
+            commands::set_panel_open,
             commands::regenerate_token,
             commands::reveal_token,
             commands::save_window,
@@ -89,21 +97,89 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// Place the widget at its saved corner, or default to the bottom-right.
+/// Place the widget at its saved corner (clamped on-screen), or default to the
+/// bottom-right. The window is a fixed panel-sized rect; only the bottom-right
+/// pill is opaque, the rest is click-through.
 fn position_window(window: &WebviewWindow, saved: (Option<i32>, Option<i32>)) {
-    if let (Some(x), Some(y)) = saved {
-        let _ = window.set_position(PhysicalPosition::new(x, y));
-        return;
+    let Ok(size) = window.outer_size() else { return };
+    // primary_monitor works before the window is shown; current_monitor doesn't,
+    // and without a monitor the clamp below is skipped and a stale saved corner
+    // can push the (now larger) window off-screen.
+    let monitor = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten());
+
+    let (mut x, mut y) = match saved {
+        (Some(sx), Some(sy)) => (sx, sy),
+        _ => match &monitor {
+            Some(m) => {
+                let scale = m.scale_factor();
+                let margin = (MARGIN as f64 * scale) as i32;
+                (
+                    m.position().x + m.size().width as i32 - size.width as i32 - margin,
+                    m.position().y + m.size().height as i32 - size.height as i32 - margin,
+                )
+            }
+            None => return,
+        },
+    };
+
+    // Keep it on-screen — the window size differs from older saved corners.
+    if let Some(m) = &monitor {
+        let mx = m.position().x;
+        let my = m.position().y;
+        let max_x = (mx + m.size().width as i32 - size.width as i32).max(mx);
+        let max_y = (my + m.size().height as i32 - size.height as i32).max(my);
+        x = x.clamp(mx, max_x);
+        y = y.clamp(my, max_y);
     }
-    if let (Ok(Some(monitor)), Ok(size)) = (window.current_monitor(), window.outer_size()) {
-        let scale = monitor.scale_factor();
-        let margin = (MARGIN as f64 * scale) as i32;
-        let mpos = monitor.position();
-        let msize = monitor.size();
-        let x = mpos.x + msize.width as i32 - size.width as i32 - margin;
-        let y = mpos.y + msize.height as i32 - size.height as i32 - margin;
-        let _ = window.set_position(PhysicalPosition::new(x, y));
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+/// Bottom-right square (logical px, scaled by DPI at runtime) that stays
+/// clickable while collapsed — covers the pill (74px from the corner) + margin.
+const PILL_HIT: f64 = 96.0;
+
+/// Poll the cursor and toggle window-wide click-through: the whole window is
+/// interactive while the panel is open; collapsed, only the pill corner is, so
+/// clicks land on the apps behind the transparent area.
+fn spawn_clickthrough(app: tauri::AppHandle, panel_open: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        let mut last: Option<bool> = None;
+        loop {
+            std::thread::sleep(Duration::from_millis(60));
+            let Some(window) = app.get_webview_window("main") else { continue };
+            let ignore = !pointer_interactive(&window, panel_open.load(Ordering::Relaxed));
+            if last != Some(ignore) {
+                let _ = window.set_ignore_cursor_events(ignore);
+                last = Some(ignore);
+            }
+        }
+    });
+}
+
+/// Whether the cursor is over an interactive region. Fail-safe: any missing
+/// reading returns `true`, so a hiccup never traps the user's clicks.
+fn pointer_interactive(window: &WebviewWindow, open: bool) -> bool {
+    if open {
+        return true;
     }
+    let (Ok(pos), Ok(size), Ok(cursor), Ok(scale)) = (
+        window.outer_position(),
+        window.outer_size(),
+        window.cursor_position(),
+        window.scale_factor(),
+    ) else {
+        return true;
+    };
+    let hit = (PILL_HIT * scale) as i32;
+    let right = pos.x + size.width as i32;
+    let bottom = pos.y + size.height as i32;
+    let cx = cursor.x as i32;
+    let cy = cursor.y as i32;
+    cx >= right - hit && cx < right && cy >= bottom - hit && cy < bottom
 }
 
 /// System tray: left-click toggles the panel, right-click opens a Quit menu.

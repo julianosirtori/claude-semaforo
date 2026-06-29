@@ -1,8 +1,9 @@
 // Domain model and shared application state.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Sender;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -132,8 +133,11 @@ impl Inner {
 
 /// Tauri-managed state. The server thread shares the same `Arc<Mutex<Inner>>`.
 pub struct AppState {
-    pub inner: std::sync::Arc<Mutex<Inner>>,
+    pub inner: Arc<Mutex<Inner>>,
     pub server: Mutex<Option<crate::server::ServerHandle>>,
+    /// Whether the panel is expanded — read by the click-through poller to decide
+    /// if the whole window is interactive or just the collapsed pill corner.
+    pub panel_open: Arc<AtomicBool>,
 }
 
 pub fn now_ms() -> i64 {

@@ -16,6 +16,7 @@ export interface Api {
   regenerateToken(): Promise<string>;
   revealToken(): Promise<string>;
   saveWindow(x: number, y: number): Promise<void>;
+  setPanelOpen(open: boolean): Promise<void>;
   installHooks(): Promise<InstallReport>;
   hooksInstalled(): Promise<boolean>;
   quit(): Promise<void>;
@@ -71,6 +72,10 @@ function tauriApi(): Api {
     async saveWindow(x, y) {
       const { invoke } = await core();
       await invoke("save_window", { x, y });
+    },
+    async setPanelOpen(open) {
+      const { invoke } = await core();
+      await invoke("set_panel_open", { open });
     },
     async installHooks() {
       const { invoke } = await core();
@@ -177,6 +182,7 @@ function mockApi(): Api {
     async regenerateToken() { config.token = "csf_" + Math.random().toString(16).slice(2).padEnd(16, "0").slice(0, 16); emit(); return config.token; },
     async revealToken() { return config.token; },
     async saveWindow() { /* no-op in the browser */ },
+    async setPanelOpen() { /* no-op in the browser */ },
     async installHooks() { return { claudeDir: "~/.claude", settingsPath: "~/.claude/settings.json" }; },
     async hooksInstalled() { return false; },
     async quit() { /* no-op in the browser */ },

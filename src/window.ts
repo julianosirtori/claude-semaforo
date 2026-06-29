@@ -5,56 +5,25 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { api } from "./api";
 
-const COLLAPSED = { w: 96, h: 96 };
-const OPEN = { w: 398, h: 600 };
-
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 function winMod() {
   return import("@tauri-apps/api/window");
 }
 
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, v));
-}
-
-/** Resize between pill and panel, anchored to the current bottom-right corner. */
+/**
+ * Tell the backend whether the panel is open. The window itself is a fixed
+ * panel-sized rect that never resizes — that's what kills the transparent-window
+ * flicker. The backend uses this only to size the click-through region.
+ */
 export async function applyOpen(open: boolean): Promise<void> {
-  if (!isTauri) return;
-  const { PhysicalPosition, PhysicalSize, getCurrentWindow, currentMonitor } = await winMod();
-  const w = getCurrentWindow();
-  const scale = await w.scaleFactor();
-  const pos = await w.outerPosition();
-  const size = await w.outerSize();
-  const right = pos.x + size.width;
-  const bottom = pos.y + size.height;
-
-  const target = open ? OPEN : COLLAPSED;
-  const nw = Math.round(target.w * scale);
-  const nh = Math.round(target.h * scale);
-
-  let x = right - nw;
-  let y = bottom - nh;
-
-  const mon = await currentMonitor();
-  if (mon) {
-    x = clamp(x, mon.position.x, Math.max(mon.position.x, mon.position.x + mon.size.width - nw));
-    y = clamp(y, mon.position.y, Math.max(mon.position.y, mon.position.y + mon.size.height - nh));
-  }
-
-  await w.setSize(new PhysicalSize(nw, nh));
-  await w.setPosition(new PhysicalPosition(x, y));
+  await api.setPanelOpen(open);
 }
 
-/** Restore the saved corner on launch, then settle into the collapsed pill. */
-export async function restorePosition(winX?: number, winY?: number): Promise<void> {
-  if (!isTauri) return;
-  const { PhysicalPosition, getCurrentWindow } = await winMod();
-  const w = getCurrentWindow();
-  if (typeof winX === "number" && typeof winY === "number") {
-    await w.setPosition(new PhysicalPosition(Math.round(winX), Math.round(winY)));
-  }
-  await applyOpen(false);
+/** Initial positioning is handled by the Rust side (position_window). This just
+ *  tells the backend the panel starts collapsed and lets App mark itself ready. */
+export async function restorePosition(_winX?: number, _winY?: number): Promise<void> {
+  await api.setPanelOpen(false);
 }
 
 /**

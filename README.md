@@ -6,6 +6,11 @@ and shows the worst state at a glance. Click to open the list per project. It is
 **status-only**: it shows where each session stands, it never answers prompts on
 your behalf.
 
+<p align="center">
+  <img src="docs/images/panel-light.png" alt="Panel — light theme" width="340">
+  <img src="docs/images/panel-dark.png" alt="Panel — dark theme" width="340">
+</p>
+
 Three states per session:
 
 - 🟡 **Trabalhando** — Claude is thinking (between your prompt and the end of the turn)
@@ -91,6 +96,10 @@ The hook tries `host.docker.internal` first, then `127.0.0.1`, and tags
 containerized sessions so the widget shows the `container` badge.
 
 ## Configuration
+
+<p align="center">
+  <img src="docs/images/config-light.png" alt="Configuration view" width="340">
+</p>
 
 Open the pill → gear:
 

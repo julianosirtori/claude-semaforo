@@ -42,12 +42,9 @@ pub fn run() {
             let bind = cfg.bind.clone();
             let saved = (cfg.win_x, cfg.win_y);
 
-            let allow_rules = config::load_allow_rules(&handle);
             let inner = Arc::new(Mutex::new(Inner {
                 sessions: HashMap::new(),
                 config: cfg,
-                pending: HashMap::new(),
-                allow_rules,
             }));
 
             let panel_open = Arc::new(AtomicBool::new(false));
@@ -82,7 +79,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
-            commands::respond,
             commands::get_config,
             commands::set_config,
             commands::set_panel_open,
@@ -236,7 +232,6 @@ fn spawn_sweeper(app: tauri::AppHandle, inner: Arc<Mutex<Inner>>) {
                 .collect();
             for id in &stale {
                 g.sessions.remove(id);
-                g.pending.remove(id);
             }
             before != g.sessions.len()
         };

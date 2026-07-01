@@ -1,8 +1,6 @@
 // HTTP listener reachable from the host and from containers.
 //
 //   POST /events      state updates from the lifecycle hooks
-//   POST /permission   a held PreToolUse request — the response carries the
-//                      user's allow/deny decision back to Claude Code
 //
 // Every request must carry `Authorization: Bearer <token>`.
 
@@ -10,7 +8,6 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -20,15 +17,12 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 use tiny_http::{Header, Request, Response, Server};
 
-use crate::state::{basename, now_ms, Decision, Inner, Pending, ReqKind, Session, SessionState};
+use crate::state::{basename, now_ms, Inner, Session, SessionState};
 
-const PERMISSION_TIMEOUT: Duration = Duration::from_secs(600);
-
-/// Per-route cap on request body size. The server is one-thread-per-request, so
-/// an authenticated-but-hostile container could otherwise OOM the widget with a
-/// few huge concurrent POSTs.
-const MAX_PERMISSION_BODY: u64 = 256 * 1024;
-const MAX_EVENTS_BODY: u64 = 64 * 1024;
+/// Cap on request body size. The server is one-thread-per-request, so an
+/// authenticated-but-hostile container could otherwise OOM the widget with a few
+/// huge concurrent POSTs.
+const MAX_BODY: u64 = 64 * 1024;
 
 /// Cap on how much of a transcript tail we read for the last assistant message.
 const MAX_TRANSCRIPT_TAIL: u64 = 256 * 1024;
@@ -155,13 +149,11 @@ fn handle(mut req: Request, inner: Arc<Mutex<Inner>>, app: AppHandle) {
 
     let url = req.url().to_string();
     let mut body = String::new();
-    let _ = req.as_reader().take(max_body_for(&url)).read_to_string(&mut body);
+    let _ = req.as_reader().take(MAX_BODY).read_to_string(&mut body);
     let payload: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
 
     if url.starts_with("/events") {
         handle_events(req, &inner, &app, &payload);
-    } else if url.starts_with("/permission") {
-        handle_permission(req, &inner, &app, &payload);
     } else {
         let _ = req.respond(json_response(404, json!({ "error": "not found" })));
     }
@@ -213,30 +205,22 @@ fn apply_event(
 ) -> Option<String> {
     if event == "SessionEnd" {
         g.sessions.remove(session_id);
-        g.pending.remove(session_id);
         return None;
     }
 
     if event == "PostToolUse" {
         // A tool finished. Only un-stick a session stranded in waiting (e.g. a
-        // permission answered in the terminal, which has no channel back to the
-        // pill). Leave working/ready sessions alone so we don't bump updated_at
-        // and flash the row on every tool call.
+        // permission answered in the terminal). Leave working/ready sessions
+        // alone so we don't bump updated_at and flash the row on every tool call.
         if let Some(s) = g.sessions.get_mut(session_id) {
             if s.state == SessionState::Waiting {
                 s.state = SessionState::Working;
-                s.req_kind = None;
-                s.cmd = None;
                 s.last_msg = "Voltando ao trabalho…".into();
                 s.updated_at = now_ms();
             }
         }
         return None;
     }
-
-    // A held /permission owns this session's prompt; a later Notification must
-    // not downgrade its allow/deny buttons into a generic text Ask.
-    let has_pending = g.pending.contains_key(session_id);
 
     let folder: String = if cwd.is_empty() {
         session_id.chars().take(8).collect()
@@ -250,8 +234,6 @@ fn apply_event(
         cwd: cwd.to_string(),
         container,
         state: SessionState::Working,
-        req_kind: None,
-        cmd: None,
         last_msg: String::new(),
         updated_at: now_ms(),
     });
@@ -268,24 +250,17 @@ fn apply_event(
     match event {
         "UserPromptSubmit" => {
             entry.state = SessionState::Working;
-            entry.req_kind = None;
-            entry.cmd = None;
             entry.last_msg = provided_msg.unwrap_or_else(|| "Pensando…".into());
             changed = true;
         }
         "Notification" => {
-            if !has_pending {
-                entry.state = SessionState::Waiting;
-                entry.req_kind = Some(ReqKind::Ask);
-                entry.last_msg = provided_msg.unwrap_or_else(|| "Esperando você.".into());
-                became_waiting = Some(entry.folder.clone());
-                changed = true;
-            }
+            entry.state = SessionState::Waiting;
+            entry.last_msg = provided_msg.unwrap_or_else(|| "Esperando você.".into());
+            became_waiting = Some(entry.folder.clone());
+            changed = true;
         }
         "Stop" => {
             entry.state = SessionState::Ready;
-            entry.req_kind = None;
-            entry.cmd = None;
             entry.last_msg = provided_msg
                 .or_else(|| last_assistant_message(payload))
                 .unwrap_or_else(|| "Terminei o turno.".into());
@@ -298,236 +273,12 @@ fn apply_event(
             }
         }
     }
-    // Only bump the timestamp on a real change, so the row doesn't flash when a
-    // held permission swallows a Notification (or any no-op event arrives).
+    // Only bump the timestamp on a real change, so the row doesn't flash on a
+    // no-op event.
     if changed {
         entry.updated_at = now_ms();
     }
     became_waiting
-}
-
-/// Body cap by route: permission payloads (with tool input) get more headroom
-/// than the small lifecycle events.
-fn max_body_for(url: &str) -> u64 {
-    if url.starts_with("/permission") {
-        MAX_PERMISSION_BODY
-    } else {
-        MAX_EVENTS_BODY
-    }
-}
-
-fn handle_permission(req: Request, inner: &Arc<Mutex<Inner>>, app: &AppHandle, payload: &Value) {
-    let Some(session_id) = str_field(payload, "session_id").map(str::to_string) else {
-        eprintln!("[semaforo] /permission without session_id — deferring to Claude Code");
-        let _ = req.respond(permission_response(Decision::Ask));
-        return;
-    };
-
-    // Only sessions in "default" mode are actually prompted by Claude Code. In
-    // auto / acceptEdits / bypassPermissions / plan / dontAsk modes it wouldn't
-    // ask, so defer instead of gating — otherwise an auto-mode session that
-    // never wanted a prompt shows a false 🔴 "te esperando".
-    match str_field(payload, "permission_mode") {
-        Some("default") | None => {}
-        Some(_) => {
-            let _ = req.respond(permission_response(Decision::Ask));
-            return;
-        }
-    }
-
-    let cwd = str_field(payload, "cwd").unwrap_or("").to_string();
-    let container = is_container(&req, payload);
-    let tool_name = str_field(payload, "tool_name").unwrap_or("Tool");
-    let tool_input = payload.get("tool_input");
-    // `key` is the precise rule identity (stored/matched); `label` is the short
-    // friendly text shown on the pill. They differ on purpose: the key keeps the
-    // full path / arguments so "always" can't over-grant, the label truncates.
-    let key = describe_key(tool_name, tool_input);
-    let label = describe_label(tool_name, tool_input);
-
-    let rx = {
-        let mut g = match inner.lock() {
-            Ok(g) => g,
-            Err(_) => {
-                let _ = req.respond(json_response(500, json!({ "error": "state" })));
-                return;
-            }
-        };
-
-        // Honor an existing "always allow" rule without bothering the user.
-        if g.allow_rules.contains(&key) {
-            upsert_working(&mut g, &session_id, &cwd, container, format!("Rodando {label}…"));
-            drop(g);
-            emit(app, inner);
-            let _ = req.respond(permission_response(Decision::Allow));
-            return;
-        }
-
-        // Pill answering disabled → let the native prompt handle it.
-        if !g.config.reply_perm {
-            let _ = req.respond(permission_response(Decision::Ask));
-            return;
-        }
-
-        let folder = if cwd.is_empty() { basename(&session_id) } else { basename(&cwd) };
-        let entry = g.sessions.entry(session_id.clone()).or_insert_with(|| Session {
-            id: session_id.clone(),
-            folder: folder.clone(),
-            cwd: cwd.clone(),
-            container,
-            state: SessionState::Waiting,
-            req_kind: Some(ReqKind::Perm),
-            cmd: Some(label.clone()),
-            last_msg: String::new(),
-            updated_at: now_ms(),
-        });
-        entry.folder = folder.clone();
-        if !cwd.is_empty() {
-            entry.cwd = cwd.clone();
-        }
-        entry.container = entry.container || container;
-        entry.state = SessionState::Waiting;
-        entry.req_kind = Some(ReqKind::Perm);
-        entry.cmd = Some(label.clone());
-        entry.last_msg = if tool_name == "Bash" {
-            "Quer rodar um comando".to_string()
-        } else {
-            format!("Quer usar {tool_name}")
-        };
-        entry.updated_at = now_ms();
-
-        let (tx, rx) = channel::<Decision>();
-        // Replaces any prior responder; the displaced one wakes with Disconnected.
-        g.pending.insert(session_id.clone(), Pending { tx, rule_key: key });
-        rx
-    };
-
-    emit(app, inner);
-    {
-        let folder = inner
-            .lock()
-            .ok()
-            .and_then(|g| g.sessions.get(&session_id).map(|s| s.folder.clone()))
-            .unwrap_or_default();
-        notify_if_enabled(app, inner, &folder);
-    }
-
-    let decision = match rx.recv_timeout(PERMISSION_TIMEOUT) {
-        Ok(decision) => decision,
-        Err(RecvTimeoutError::Timeout) => {
-            // Nobody answered in time. Reset the session so the pill stops showing
-            // a phantom 🔴, and tell the user to answer in the terminal instead.
-            let reset = inner.lock().map(|mut g| reset_timed_out(&mut g, &session_id)).unwrap_or(false);
-            if reset {
-                emit(app, inner);
-            }
-            Decision::Ask
-        }
-        // Displaced by a newer /permission for the same session (it dropped our
-        // sender). The replacement now owns the session — don't touch it.
-        Err(RecvTimeoutError::Disconnected) => Decision::Ask,
-    };
-    let _ = req.respond(permission_response(decision));
-}
-
-/// On a permission timeout, drop our held slot and un-stick the session — but
-/// only if it's still showing *our* held permission (nobody answered, no newer
-/// request replaced it). Returns whether anything changed (worth an emit).
-fn reset_timed_out(g: &mut Inner, session_id: &str) -> bool {
-    if g.pending.remove(session_id).is_none() {
-        return false; // already answered or replaced
-    }
-    let Some(s) = g.sessions.get_mut(session_id) else { return false };
-    if s.state == SessionState::Waiting && s.req_kind == Some(ReqKind::Perm) {
-        s.state = SessionState::Working;
-        s.req_kind = None;
-        s.cmd = None;
-        s.last_msg = "Tempo esgotado — responda no terminal.".into();
-        s.updated_at = now_ms();
-        true
-    } else {
-        false
-    }
-}
-
-fn upsert_working(g: &mut Inner, session_id: &str, cwd: &str, container: bool, msg: String) {
-    let folder = if cwd.is_empty() { basename(session_id) } else { basename(cwd) };
-    let entry = g.sessions.entry(session_id.to_string()).or_insert_with(|| Session {
-        id: session_id.to_string(),
-        folder: folder.clone(),
-        cwd: cwd.to_string(),
-        container,
-        state: SessionState::Working,
-        req_kind: None,
-        cmd: None,
-        last_msg: String::new(),
-        updated_at: now_ms(),
-    });
-    entry.state = SessionState::Working;
-    entry.req_kind = None;
-    entry.cmd = None;
-    entry.last_msg = msg;
-    entry.container = container;
-    entry.updated_at = now_ms();
-}
-
-fn permission_response(decision: Decision) -> Response<std::io::Cursor<Vec<u8>>> {
-    json_response(
-        200,
-        json!({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": decision.as_str(),
-                "permissionDecisionReason": "respondido pelo Claude Semáforo",
-            }
-        }),
-    )
-}
-
-/// A short, human label for the tool/command awaiting permission. Truncated for
-/// display only — never key an allow-rule off this (use `describe_key`).
-fn describe_label(tool_name: &str, tool_input: Option<&Value>) -> String {
-    let input = tool_input.unwrap_or(&Value::Null);
-    let raw = match tool_name {
-        "Bash" => input.get("command").and_then(Value::as_str).map(str::to_string),
-        _ => input
-            .get("file_path")
-            .or_else(|| input.get("path"))
-            .and_then(Value::as_str)
-            .map(|p| format!("{tool_name} {}", basename(p))),
-    }
-    .unwrap_or_else(|| tool_name.to_string());
-
-    if raw.chars().count() > 120 {
-        let truncated: String = raw.chars().take(117).collect();
-        format!("{truncated}…")
-    } else {
-        raw
-    }
-}
-
-/// The precise identity of a tool call, used to store and match "always allow"
-/// rules. Unlike the label it is never truncated and keeps the full path (file
-/// tools) or the exact, canonically-ordered arguments (Bash, MCP, everything
-/// else), so approving one call can't blanket-approve a different file or payload.
-fn describe_key(tool_name: &str, tool_input: Option<&Value>) -> String {
-    let input = tool_input.unwrap_or(&Value::Null);
-    match tool_name {
-        "Bash" => input
-            .get("command")
-            .and_then(Value::as_str)
-            .map(|c| format!("Bash {c}")),
-        "Write" | "Edit" | "MultiEdit" | "NotebookEdit" | "Read" => input
-            .get("file_path")
-            .or_else(|| input.get("path"))
-            .and_then(Value::as_str)
-            .map(|p| format!("{tool_name} {p}")),
-        _ => match input {
-            Value::Null => None,
-            other => Some(format!("{tool_name} {other}")),
-        },
-    }
-    .unwrap_or_else(|| tool_name.to_string())
 }
 
 /// Best-effort: the last assistant text from a host-readable transcript. The
@@ -606,74 +357,13 @@ fn clip(s: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use crate::state::Config;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     fn inner() -> Inner {
         Inner {
             sessions: HashMap::new(),
             config: Config::default(),
-            pending: HashMap::new(),
-            allow_rules: HashSet::new(),
         }
-    }
-
-    #[test]
-    fn label_bash_uses_command() {
-        let input = json!({ "command": "npm run migrate:prod" });
-        assert_eq!(describe_label("Bash", Some(&input)), "npm run migrate:prod");
-    }
-
-    #[test]
-    fn label_file_tool_uses_basename() {
-        let input = json!({ "file_path": "/home/me/proj/.env" });
-        assert_eq!(describe_label("Write", Some(&input)), "Write .env");
-    }
-
-    #[test]
-    fn label_falls_back_to_tool_name() {
-        assert_eq!(describe_label("Glob", Some(&json!({}))), "Glob");
-        assert_eq!(describe_label("Glob", None), "Glob");
-    }
-
-    #[test]
-    fn label_truncates_long_commands() {
-        let long = "x".repeat(300);
-        let described = describe_label("Bash", Some(&json!({ "command": long })));
-        assert!(described.chars().count() <= 120);
-        assert!(described.ends_with('…'));
-    }
-
-    #[test]
-    fn key_keeps_full_path_so_different_dirs_dont_collide() {
-        // Approving Write to /a/.env must not auto-allow Write to /b/.env.
-        let a = describe_key("Write", Some(&json!({ "file_path": "/a/.env" })));
-        let b = describe_key("Write", Some(&json!({ "file_path": "/b/.env" })));
-        assert_eq!(a, "Write /a/.env");
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn key_binds_mcp_calls_to_their_arguments() {
-        // "Always" on an MCP tool must not blanket-approve every future call.
-        let a = describe_key("mcp__github__create_pr", Some(&json!({ "title": "x" })));
-        let b = describe_key("mcp__github__create_pr", Some(&json!({ "title": "y" })));
-        assert_ne!(a, b);
-        // Bare tool name only when there are no args at all.
-        assert_eq!(describe_key("mcp__github__whoami", None), "mcp__github__whoami");
-    }
-
-    #[test]
-    fn key_does_not_truncate_bash() {
-        // Two commands sharing a 117-char prefix must not collide on one rule.
-        let long = "x".repeat(300);
-        let key = describe_key("Bash", Some(&json!({ "command": long.clone() })));
-        assert!(key.contains(&long));
-    }
-
-    #[test]
-    fn max_body_caps_permission_higher_than_events() {
-        assert_eq!(max_body_for("/permission"), MAX_PERMISSION_BODY);
-        assert_eq!(max_body_for("/events"), MAX_EVENTS_BODY);
     }
 
     #[test]
@@ -700,7 +390,6 @@ mod tests {
         assert_eq!(folder.as_deref(), Some("api-gateway"));
         let s = g.sessions.get("s1").unwrap();
         assert!(matches!(s.state, SessionState::Waiting));
-        assert!(matches!(s.req_kind, Some(ReqKind::Ask)));
         assert_eq!(s.last_msg, "posso?");
     }
 
@@ -759,16 +448,13 @@ mod tests {
 
     #[test]
     fn post_tool_use_unsticks_waiting_session() {
-        // A permission left the session waiting (answered in the terminal, with
-        // no channel back to the pill). Once the tool runs, it's working again.
+        // A Notification left the session waiting. Once a tool runs, it's working.
         let mut g = inner();
         apply_event(&mut g, "Notification", "s1", "/x/api", false, Some("posso?".into()), &Value::Null);
         assert!(matches!(g.sessions.get("s1").unwrap().state, SessionState::Waiting));
 
         apply_event(&mut g, "PostToolUse", "s1", "/x/api", false, None, &Value::Null);
-        let s = g.sessions.get("s1").unwrap();
-        assert!(matches!(s.state, SessionState::Working));
-        assert!(s.req_kind.is_none());
+        assert!(matches!(g.sessions.get("s1").unwrap().state, SessionState::Working));
     }
 
     #[test]
@@ -783,61 +469,6 @@ mod tests {
         let s = g.sessions.get("s1").unwrap();
         assert!(matches!(s.state, SessionState::Ready));
         assert_eq!(s.updated_at, 123);
-    }
-
-    #[test]
-    fn notification_keeps_held_permission() {
-        // A /permission is held for the session (rich allow/deny prompt). A
-        // Notification arriving for the same session must not clobber it into a
-        // generic text Ask, which would replace the buttons with a text field.
-        let mut g = inner();
-        g.sessions.insert(
-            "s1".into(),
-            Session {
-                id: "s1".into(),
-                folder: "api".into(),
-                cwd: "/x/api".into(),
-                container: false,
-                state: SessionState::Waiting,
-                req_kind: Some(ReqKind::Perm),
-                cmd: Some("rm -rf x".into()),
-                last_msg: "Quer rodar um comando".into(),
-                updated_at: 1,
-            },
-        );
-        let (tx, _rx) = channel::<Decision>();
-        g.pending.insert("s1".into(), Pending { tx, rule_key: "Bash rm -rf x".into() });
-
-        apply_event(&mut g, "Notification", "s1", "/x/api", false, Some("posso?".into()), &Value::Null);
-        let s = g.sessions.get("s1").unwrap();
-        assert!(matches!(s.req_kind, Some(ReqKind::Perm)));
-        assert_eq!(s.cmd.as_deref(), Some("rm -rf x"));
-    }
-
-    #[test]
-    fn notification_with_held_permission_does_not_flash() {
-        // A Notification swallowed by a held permission must not bump updated_at,
-        // or the row flashes with no semantic change.
-        let mut g = inner();
-        g.sessions.insert(
-            "s1".into(),
-            Session {
-                id: "s1".into(),
-                folder: "api".into(),
-                cwd: "/x/api".into(),
-                container: false,
-                state: SessionState::Waiting,
-                req_kind: Some(ReqKind::Perm),
-                cmd: Some("rm -rf x".into()),
-                last_msg: "Quer rodar um comando".into(),
-                updated_at: 42,
-            },
-        );
-        let (tx, _rx) = channel::<Decision>();
-        g.pending.insert("s1".into(), Pending { tx, rule_key: "Bash rm -rf x".into() });
-
-        apply_event(&mut g, "Notification", "s1", "/x/api", false, Some("posso?".into()), &Value::Null);
-        assert_eq!(g.sessions.get("s1").unwrap().updated_at, 42);
     }
 
     #[test]
@@ -856,45 +487,6 @@ mod tests {
         let mut g = inner();
         apply_event(&mut g, "UserPromptSubmit", "s1", "/x/api", false, None, &Value::Null);
         apply_event(&mut g, "SubagentStop", "s1", "/x/api", false, None, &Value::Null);
-        assert!(matches!(g.sessions.get("s1").unwrap().state, SessionState::Working));
-    }
-
-    #[test]
-    fn timeout_resets_stuck_permission() {
-        let mut g = inner();
-        g.sessions.insert(
-            "s1".into(),
-            Session {
-                id: "s1".into(),
-                folder: "api".into(),
-                cwd: "/x/api".into(),
-                container: false,
-                state: SessionState::Waiting,
-                req_kind: Some(ReqKind::Perm),
-                cmd: Some("rm -rf x".into()),
-                last_msg: "Quer rodar um comando".into(),
-                updated_at: 1,
-            },
-        );
-        let (tx, _rx) = channel::<Decision>();
-        g.pending.insert("s1".into(), Pending { tx, rule_key: "Bash rm -rf x".into() });
-
-        assert!(reset_timed_out(&mut g, "s1"));
-        let s = g.sessions.get("s1").unwrap();
-        assert!(matches!(s.state, SessionState::Working));
-        assert!(s.req_kind.is_none());
-        assert!(s.cmd.is_none());
-        assert!(s.updated_at > 1);
-        assert!(!g.pending.contains_key("s1"));
-    }
-
-    #[test]
-    fn timeout_is_a_noop_when_already_answered() {
-        // No pending slot (someone clicked, or a newer request replaced ours):
-        // resetting would clobber whatever now owns the session.
-        let mut g = inner();
-        apply_event(&mut g, "UserPromptSubmit", "s1", "/x/api", false, None, &Value::Null);
-        assert!(!reset_timed_out(&mut g, "s1"));
         assert!(matches!(g.sessions.get("s1").unwrap().state, SessionState::Working));
     }
 }

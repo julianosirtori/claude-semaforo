@@ -9,18 +9,18 @@ O Claude Semáforo é um widget *always-on-top* feito em **Tauri 2**: o backend 
 Rust rodando no host, e o frontend é React + TypeScript renderizado numa janela
 transparente sem decoração. Ele agrega o estado de várias sessões do Claude Code
 ao mesmo tempo, inclusive as que rodam dentro de containers, e mostra num relance
-o pior estado entre todas. Clicando, abre o painel com a lista por projeto, e nas
-sessões 🔴 dá pra responder a permissão ali mesmo.
+o pior estado entre todas. Clicando, abre o painel com a lista por projeto. Ele é
+**só de status**: mostra onde cada sessão está, mas nunca responde prompt nenhum
+no teu lugar.
 
 ```
 ┌─────────────────────────── host ───────────────────────────┐
 │                                                             │
 │   sessão Claude Code ──hook(notify.sh)──▶ POST /events ─────┼─▶ estado em memória
-│                       └hook(PreToolUse)─▶ POST /permission ─┼─▶ segura a request
-│                                              ▲              │      (long-poll)
-│   ┌──── janela Tauri (transparente) ────┐   │              │
-│   │  pílula  ◀──── eventos "snapshot" ───┼───┘              │
-│   │  painel  ───── invoke(respond) ──────┼──▶ devolve a decisão pela request
+│                                                             │      (fire-and-forget)
+│   ┌──── janela Tauri (transparente) ────┐                  │
+│   │  pílula  ◀──── eventos "snapshot" ───┼──────────────────┘
+│   │  painel                              │                  │
 │   └──────────────────────────────────────┘                 │
 │                                                             │
 │   container ──notify.sh via host.docker.internal:7337──────▶ (mesma porta 0.0.0.0)

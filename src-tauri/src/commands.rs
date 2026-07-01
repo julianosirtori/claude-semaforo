@@ -5,7 +5,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::config;
 use crate::server;
 use crate::setup::{self, InstallReport};
-use crate::state::{now_ms, AppState, Config, ConfigPatch, Decision, SessionState, Snapshot};
+use crate::state::{AppState, Config, ConfigPatch, Snapshot};
 
 fn push(app: &AppHandle, state: &AppState) {
     if let Ok(g) = state.inner.lock() {
@@ -16,41 +16,6 @@ fn push(app: &AppHandle, state: &AppState) {
 #[tauri::command]
 pub fn get_state(state: State<AppState>) -> Snapshot {
     state.inner.lock().unwrap().snapshot()
-}
-
-#[tauri::command]
-pub fn respond(session_id: String, decision: String, state: State<AppState>, app: AppHandle) {
-    {
-        let mut g = state.inner.lock().unwrap();
-
-        // The "always" rule key lives on the held request, not on the truncated
-        // display label — read it from there before we drop the responder.
-        if decision == "always" {
-            if let Some(key) = g.pending.get(&session_id).map(|p| p.rule_key.clone()) {
-                g.allow_rules.insert(key);
-                config::save_allow_rules(&app, &g.allow_rules);
-            }
-        }
-
-        let dec = if decision == "deny" { Decision::Deny } else { Decision::Allow };
-
-        if let Some(s) = g.sessions.get_mut(&session_id) {
-            let cmd = s.cmd.take();
-            s.state = SessionState::Working;
-            s.req_kind = None;
-            s.last_msg = if decision == "deny" {
-                "Ok — vou por outro caminho.".into()
-            } else {
-                cmd.map(|c| format!("Rodando {c}…")).unwrap_or_else(|| "Voltando ao trabalho…".into())
-            };
-            s.updated_at = now_ms();
-        }
-
-        if let Some(p) = g.pending.remove(&session_id) {
-            let _ = p.tx.send(dec);
-        }
-    }
-    push(&app, &state);
 }
 
 /// The frontend reports panel open/close so the click-through poller knows
@@ -91,7 +56,6 @@ pub fn set_config(patch: ConfigPatch, state: State<AppState>, app: AppHandle) ->
         }
         if let Some(v) = patch.notify { c.notify = v; }
         if let Some(v) = patch.sound { c.sound = v; }
-        if let Some(v) = patch.reply_perm { c.reply_perm = v; }
 
         config::save(&app, c);
         c.clone()

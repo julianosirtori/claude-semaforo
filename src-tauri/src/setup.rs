@@ -12,12 +12,8 @@ use tauri::AppHandle;
 const NOTIFY_SH: &str = include_str!("../../hooks/notify.sh");
 const NOTIFY_PS1: &str = include_str!("../../hooks/notify.ps1");
 
-/// Tools gated through the pill's allow/deny prompt (held via /permission).
-/// Read-only tools (Read/Glob/Grep/LS) are intentionally excluded so they don't
-/// block waiting for a click; permissive modes are deferred server-side anyway.
-const PERM_MATCHER: &str = "Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch|WebSearch|mcp__.*";
-
-/// Lifecycle events posted to /events (state only, no permission decision).
+/// Lifecycle events posted to /events (status only — the widget never answers
+/// permissions, so PreToolUse is intentionally not registered).
 const STATE_EVENTS: [&str; 5] = [
     "UserPromptSubmit",
     "Notification",
@@ -70,16 +66,26 @@ fn is_our_group(group: &Value) -> bool {
         .unwrap_or(false)
 }
 
-fn our_group(event: &str, command: &str) -> Value {
-    if event == "PreToolUse" {
-        json!({ "matcher": PERM_MATCHER, "hooks": [{ "type": "command", "command": command, "timeout": 620 }] })
-    } else {
-        json!({ "hooks": [{ "type": "command", "command": command }] })
-    }
+fn our_group(command: &str) -> Value {
+    json!({ "hooks": [{ "type": "command", "command": command }] })
 }
 
-/// Merge our hooks into an existing settings object, replacing any prior
-/// Semáforo entries and preserving everything else. Pure and idempotent.
+/// Drop our groups from an event, returning whatever non-Semáforo groups remain.
+fn without_our_groups(hooks: &serde_json::Map<String, Value>, event: &str) -> Vec<Value> {
+    hooks
+        .get(event)
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|g| !is_our_group(g))
+        .collect()
+}
+
+/// Merge our status hooks into an existing settings object, replacing any prior
+/// Semáforo entries and preserving everything else. Pure and idempotent. Also
+/// strips a Semáforo `PreToolUse` group left by an older (permission-gating)
+/// install, so reinstalling cleans it up.
 pub fn build_settings(mut existing: Value, command: &str) -> Value {
     if !existing.is_object() {
         existing = json!({});
@@ -91,18 +97,21 @@ pub fn build_settings(mut existing: Value, command: &str) -> Value {
     }
     let hooks = hooks.as_object_mut().unwrap();
 
-    for event in STATE_EVENTS.iter().copied().chain(std::iter::once("PreToolUse")) {
-        let mut groups: Vec<Value> = hooks
-            .get(event)
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|g| !is_our_group(g))
-            .collect();
-        groups.push(our_group(event, command));
+    for event in STATE_EVENTS {
+        let mut groups = without_our_groups(hooks, event);
+        groups.push(our_group(command));
         hooks.insert(event.to_string(), Value::Array(groups));
     }
+
+    // Never register PreToolUse. Remove our old group if present, and drop the
+    // key entirely when nothing else is left behind.
+    let remaining = without_our_groups(hooks, "PreToolUse");
+    if remaining.is_empty() {
+        hooks.remove("PreToolUse");
+    } else {
+        hooks.insert("PreToolUse".to_string(), Value::Array(remaining));
+    }
+
     existing
 }
 
@@ -163,14 +172,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builds_all_hooks_from_empty() {
+    fn builds_only_status_hooks_from_empty() {
         let out = build_settings(json!({}), "bash notify.sh");
         let hooks = out["hooks"].as_object().unwrap();
-        for event in ["UserPromptSubmit", "Notification", "PostToolUse", "Stop", "SessionEnd", "PreToolUse"] {
+        for event in ["UserPromptSubmit", "Notification", "PostToolUse", "Stop", "SessionEnd"] {
             assert!(hooks.contains_key(event), "missing {event}");
         }
-        assert_eq!(hooks["PreToolUse"][0]["matcher"], PERM_MATCHER);
-        assert_eq!(hooks["PreToolUse"][0]["hooks"][0]["timeout"], 620);
+        // Status-only: a permission hook is never registered.
+        assert!(!hooks.contains_key("PreToolUse"));
         assert_eq!(hooks["PostToolUse"][0]["hooks"][0]["command"], "bash notify.sh");
         assert_eq!(hooks["Stop"][0]["hooks"][0]["command"], "bash notify.sh");
     }
@@ -186,6 +195,36 @@ mod tests {
         let stop = out["hooks"]["Stop"].as_array().unwrap();
         assert_eq!(stop.len(), 2); // user's echo + ours
         assert_eq!(stop[0]["hooks"][0]["command"], "echo done");
+    }
+
+    #[test]
+    fn strips_our_old_pretooluse_but_keeps_others() {
+        // An older install left a Semáforo PreToolUse group alongside a user one.
+        let existing = json!({
+            "hooks": {
+                "PreToolUse": [
+                    { "matcher": "Bash", "hooks": [{ "type": "command", "command": "rtk hook claude" }] },
+                    { "matcher": "Bash|Edit", "hooks": [{ "type": "command", "command": "bash notify.sh", "timeout": 620 }] }
+                ]
+            }
+        });
+        let out = build_settings(existing, "bash notify.sh");
+        let pre = out["hooks"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(pre.len(), 1); // only the user's rtk group survives
+        assert_eq!(pre[0]["hooks"][0]["command"], "rtk hook claude");
+    }
+
+    #[test]
+    fn drops_pretooluse_key_when_only_ours_remained() {
+        let existing = json!({
+            "hooks": {
+                "PreToolUse": [
+                    { "matcher": "Bash|Edit", "hooks": [{ "type": "command", "command": "bash notify.sh", "timeout": 620 }] }
+                ]
+            }
+        });
+        let out = build_settings(existing, "bash notify.sh");
+        assert!(out["hooks"].as_object().unwrap().get("PreToolUse").is_none());
     }
 
     #[test]

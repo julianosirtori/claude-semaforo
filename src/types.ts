@@ -1,7 +1,6 @@
 // Domain model shared with the Rust backend (serde renames keep these in sync).
 
 export type SessionState = "working" | "waiting" | "ready";
-export type ReqKind = "perm" | "ask" | null;
 
 export interface Session {
   id: string;
@@ -9,8 +8,6 @@ export interface Session {
   cwd: string; // full path shown in the row
   container: boolean;
   state: SessionState;
-  reqKind: ReqKind;
-  cmd: string | null; // pending tool/command for a permission request
   lastMsg: string;
   updatedAt: number; // epoch ms
 }
@@ -26,7 +23,6 @@ export interface AppConfig {
   autostart: boolean;
   notify: boolean;
   sound: boolean; // play a tone when a session flips to waiting/ready
-  replyPerm: boolean; // allow/deny from the pill via the HTTP PreToolUse hook
   token: string; // masked in the UI; revealed only on copy
   winX?: number; // persisted window corner (not shown in UI)
   winY?: number;
@@ -36,9 +32,6 @@ export interface Snapshot {
   sessions: Session[];
   config: AppConfig;
 }
-
-// "always" = allow now and remember the rule.
-export type Decision = "allow" | "deny" | "always";
 
 export const STATE_LABEL: Record<SessionState, string> = {
   waiting: "Te esperando",

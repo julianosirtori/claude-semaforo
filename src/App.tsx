@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { applyOpen, beginDrag, restorePosition } from "./window";
-import { derive, nextCue, type Decision, type AppConfig, type Snapshot, type SessionState } from "./types";
+import { derive, nextCue, type AppConfig, type Snapshot, type SessionState } from "./types";
 import { Pill } from "./components/Pill";
 import { Panel } from "./components/Panel";
 import { playState } from "./sound";
@@ -111,9 +111,6 @@ export default function App() {
   const toggle = useCallback(() => setOpen((o) => !o), []);
   const onPatch = useCallback((patch: Partial<AppConfig>) => { api.setConfig(patch); }, []);
 
-  const respond = useCallback((id: string, decision: Decision) => { api.respond(id, decision); }, []);
-  const onAlways = useCallback((id: string) => { api.respond(id, "always"); showToast("Regra criada · sempre permitir"); }, [showToast]);
-
   const onCopyToken = useCallback(async () => {
     try {
       const token = await api.revealToken();
@@ -136,7 +133,6 @@ export default function App() {
           PostToolUse: [{ hooks: [{ type: "command", command: cmd }] }],
           Stop: [{ hooks: [{ type: "command", command: cmd }] }],
           SessionEnd: [{ hooks: [{ type: "command", command: cmd }] }],
-          PreToolUse: [{ matcher: "Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch|WebSearch|mcp__.*", hooks: [{ type: "command", command: cmd, timeout: 620 }] }],
         },
       };
       const bootstrap = [
@@ -210,9 +206,6 @@ export default function App() {
         onInstallHooks={onInstallHooks}
         onCopyContainer={onCopyContainer}
         onQuit={onQuit}
-        onAllow={(id) => respond(id, "allow")}
-        onAlways={onAlways}
-        onDeny={(id) => respond(id, "deny")}
       />
 
       {!open && d.hasWait && <div className="nudge">clique pra abrir</div>}

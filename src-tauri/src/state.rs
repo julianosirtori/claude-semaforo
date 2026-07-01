@@ -1,8 +1,7 @@
 // Domain model and shared application state.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -16,13 +15,6 @@ pub enum SessionState {
     Ready,
 }
 
-#[derive(Serialize, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum ReqKind {
-    Perm,
-    Ask,
-}
-
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
@@ -31,8 +23,6 @@ pub struct Session {
     pub cwd: String,
     pub container: bool,
     pub state: SessionState,
-    pub req_kind: Option<ReqKind>,
-    pub cmd: Option<String>,
     pub last_msg: String,
     pub updated_at: i64,
 }
@@ -54,7 +44,6 @@ pub struct Config {
     // written before this field existed from resetting to all-defaults on load.
     #[serde(default = "default_true")]
     pub sound: bool,
-    pub reply_perm: bool,
     pub token: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub win_x: Option<i32>,
@@ -72,7 +61,6 @@ impl Default for Config {
             autostart: false,
             notify: true,
             sound: true,
-            reply_perm: true,
             token: String::new(),
             win_x: None,
             win_y: None,
@@ -91,7 +79,6 @@ pub struct ConfigPatch {
     pub autostart: Option<bool>,
     pub notify: Option<bool>,
     pub sound: Option<bool>,
-    pub reply_perm: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -100,41 +87,9 @@ pub struct Snapshot {
     pub config: Config,
 }
 
-/// What the user (or a timeout) decided for a held permission request.
-#[derive(Clone, Copy)]
-pub enum Decision {
-    Allow,
-    Deny,
-    Ask,
-}
-
-impl Decision {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Decision::Allow => "allow",
-            Decision::Deny => "deny",
-            Decision::Ask => "ask",
-        }
-    }
-}
-
-/// A currently-held PreToolUse request: the channel that answers it, plus the
-/// allow-rule key it would create on "always". The key is the precise,
-/// untruncated identity of the call (full path / arguments) so an "always" can't
-/// blanket-approve unrelated calls. It lives here, not on `Session`, because it
-/// only matters while the request is held.
-pub struct Pending {
-    pub tx: Sender<Decision>,
-    pub rule_key: String,
-}
-
 pub struct Inner {
     pub sessions: HashMap<String, Session>,
     pub config: Config,
-    /// session_id -> the currently-held PreToolUse request for that session.
-    pub pending: HashMap<String, Pending>,
-    /// Commands the user chose to always allow.
-    pub allow_rules: HashSet<String>,
 }
 
 impl Inner {
@@ -178,7 +133,7 @@ pub fn basename(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     #[test]
     fn basename_handles_unix_and_windows() {
@@ -189,24 +144,17 @@ mod tests {
     }
 
     #[test]
-    fn decision_serializes_to_lowercase() {
-        assert_eq!(Decision::Allow.as_str(), "allow");
-        assert_eq!(Decision::Deny.as_str(), "deny");
-        assert_eq!(Decision::Ask.as_str(), "ask");
-    }
-
-    #[test]
     fn config_serializes_camel_case() {
         let value = serde_json::to_value(Config::default()).unwrap();
         assert!(value.get("alwaysOnTop").is_some());
-        assert!(value.get("replyPerm").is_some());
+        assert!(value.get("sound").is_some());
     }
 
     #[test]
     fn config_patch_deserializes_camel_case() {
         let patch: ConfigPatch =
-            serde_json::from_str(r#"{ "replyPerm": true, "alwaysOnTop": false }"#).unwrap();
-        assert_eq!(patch.reply_perm, Some(true));
+            serde_json::from_str(r#"{ "sound": true, "alwaysOnTop": false }"#).unwrap();
+        assert_eq!(patch.sound, Some(true));
         assert_eq!(patch.always_on_top, Some(false));
         assert_eq!(patch.bind, None);
     }
@@ -214,12 +162,7 @@ mod tests {
     #[test]
     fn snapshot_omits_token() {
         let config = Config { token: "csf_secret".into(), ..Config::default() };
-        let inner = Inner {
-            sessions: HashMap::new(),
-            config,
-            pending: HashMap::new(),
-            allow_rules: HashSet::new(),
-        };
+        let inner = Inner { sessions: HashMap::new(), config };
         // The token must never ride along in the broadcast snapshot.
         assert_eq!(inner.snapshot().config.token, "");
     }
@@ -236,19 +179,12 @@ mod tests {
                     cwd: String::new(),
                     container: false,
                     state: SessionState::Ready,
-                    req_kind: None,
-                    cmd: None,
                     last_msg: String::new(),
                     updated_at: at,
                 },
             );
         }
-        let inner = Inner {
-            sessions,
-            config: Config::default(),
-            pending: HashMap::new(),
-            allow_rules: HashSet::new(),
-        };
+        let inner = Inner { sessions, config: Config::default() };
         let ids: Vec<_> = inner.snapshot().sessions.iter().map(|s| s.id.clone()).collect();
         assert_eq!(ids, vec!["new", "mid", "old"]);
     }

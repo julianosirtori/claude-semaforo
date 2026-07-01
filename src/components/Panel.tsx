@@ -27,9 +27,6 @@ interface Props {
   onInstallHooks: () => void;
   onCopyContainer: () => void;
   onQuit: () => void;
-  onAllow: (id: string) => void;
-  onAlways: (id: string) => void;
-  onDeny: (id: string) => void;
 }
 
 export function Panel(p: Props) {
@@ -97,9 +94,6 @@ export function Panel(p: Props) {
                       session={s}
                       flash={p.flashId === s.id}
                       nowMs={p.nowMs}
-                      onAllow={() => p.onAllow(s.id)}
-                      onAlways={() => p.onAlways(s.id)}
-                      onDeny={() => p.onDeny(s.id)}
                     />
                   ))}
               </div>

@@ -82,23 +82,6 @@ export function ConfigView({ config, onPatch, onCopyToken, onRegenToken, regenSp
 
         <div className="cfg__divider" />
 
-        {/* Respostas */}
-        <div>
-          <div className="cfg__h">Respostas</div>
-          <div className="cfg__group">
-            <div className="cfgrow">
-              <div style={{ minWidth: 0 }}>
-                <div className="cfgrow__t">Permitir/negar pela pílula</div>
-                <div className="cfgrow__s">via hook HTTP (nativo)</div>
-              </div>
-              <span style={{ marginLeft: "auto" }} />
-              <Toggle on={config.replyPerm} onChange={(v) => onPatch({ replyPerm: v })} />
-            </div>
-          </div>
-        </div>
-
-        <div className="cfg__divider" />
-
         {/* Aparência & sistema */}
         <div>
           <div className="cfg__h">Aparência &amp; sistema</div>

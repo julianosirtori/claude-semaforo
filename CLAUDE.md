@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Claude Semáforo is a Tauri 2 always-on-top widget (Rust backend + React/TS frontend) that aggregates the state of every Claude Code session — including ones in containers — into one pill and lets you answer permission prompts from it. `ARCHITECTURE.md` is the canonical design doc (written in Portuguese, by author preference); read it before non-trivial backend work.
+Claude Semáforo is a Tauri 2 always-on-top widget (Rust backend + React/TS frontend) that aggregates the state of every Claude Code session — including ones in containers — into one pill. It is **status-only**: each session is `working`/`waiting`/`ready`, nothing more. It does not answer permission prompts. `ARCHITECTURE.md` is the canonical design doc (written in Portuguese, by author preference); read it before non-trivial backend work.
 
 ## Commands
 
@@ -27,7 +27,7 @@ cargo test --manifest-path src-tauri/Cargo.toml merge   # single test by name
 
 **Two runtimes, one shared state model.** The Rust backend runs an HTTP listener (`tiny_http`, sync, one thread per request) on `0.0.0.0:7337`; the frontend renders in a transparent, decorationless, always-on-top window. All backend state lives in memory behind a single `Arc<Mutex<Inner>>` shared between the Tauri command handlers and the HTTP server thread.
 
-**The permission long-poll is the core mechanism.** A `PreToolUse` hook POSTs to `/permission`, which *holds the request open* (`recv_timeout`, up to 600s) until the user clicks Permitir/Sempre/Negar on the pill. The decision travels back through the held HTTP response body as a `hookSpecificOutput` / `permissionDecision`, so Claude Code actually allows or blocks the tool. This is why `tiny_http`'s one-thread-per-request model matters: a blocked permission request must not stall others. State lifecycle events (`UserPromptSubmit`→working, `Notification`→waiting, `Stop`→ready, `SessionEnd`→remove) go to `/events`. Every request requires `Authorization: Bearer <token>`, compared in constant time.
+**Lifecycle events are the only mechanism.** State events go to `/events`: `UserPromptSubmit`→working, `Notification`→waiting, `Stop`→ready, `SessionEnd`→remove, and `PostToolUse` un-sticks a session left waiting. The widget never gates tool calls — there is no `PreToolUse`/`/permission` hook, so a session in `auto` mode is never prompted on its behalf. `tiny_http`'s one-thread-per-request model still keeps a slow `/events` POST from stalling others. Every request requires `Authorization: Bearer <token>`, compared in constant time.
 
 **`0.0.0.0` bind is deliberate** so containers reach the host (`host.docker.internal`). Container sessions are detected by the `X-Semaforo-Container` header (reliable) with source-IP-not-loopback as fallback.
 

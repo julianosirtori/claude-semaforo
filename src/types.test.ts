@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { derive, nextCue, relTime, type Session, type SessionState } from "./types";
 
 function session(id: string, state: Session["state"]): Session {
-  return { id, folder: id, cwd: `/x/${id}`, container: false, state, reqKind: null, cmd: null, lastMsg: "", updatedAt: 0 };
+  return { id, folder: id, cwd: `/x/${id}`, container: false, state, lastMsg: "", updatedAt: 0 };
 }
 
 function prev(...pairs: [string, SessionState][]): Map<string, SessionState> {
@@ -46,7 +46,7 @@ describe("derive", () => {
 
 describe("nextCue", () => {
   it("cues a session appearing already in waiting (the bug fix)", () => {
-    // First event is the permission prompt: no prior state, still must chime.
+    // First event is a Notification: no prior state, still must chime.
     expect(nextCue(prev(), [session("a", "waiting")])).toBe("waiting");
   });
 

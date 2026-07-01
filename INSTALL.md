@@ -71,9 +71,8 @@ faz na mão:
 
 3. Registre os hooks. Copie `.claude/settings.local.example.json` para
    `.claude/settings.local.json` (por projeto) ou para `~/.claude/settings.json`
-   (global). Isso liga os quatro eventos de estado mais o hook de permissão
-   `PreToolUse`. No Windows nativo, troque o comando por
-   `powershell -NoProfile -File "%USERPROFILE%\.claude\notify.ps1"`.
+   (global). Isso liga os cinco eventos de estado. No Windows nativo, troque o
+   comando por `powershell -NoProfile -File "%USERPROFILE%\.claude\notify.ps1"`.
 
 #### Alcançar o host a partir de um container
 
@@ -95,11 +94,10 @@ container ganham o selo `container` no widget.
 1. Com o widget aberto, rode qualquer comando numa sessão do Claude Code.
 2. A pílula deve mudar de cor:
    - 🟡 **Trabalhando** — Claude está pensando.
-   - 🔴 **Te esperando** — parou para pedir permissão ou fazer uma pergunta.
+   - 🔴 **Te esperando** — parou para pedir algo ou fazer uma pergunta.
    - 🟢 **Pronto** — terminou, tem saída para revisar.
-3. Numa sessão 🔴 você responde direto na pílula: **Permitir** / **Sempre** /
-   **Negar**. A decisão volta para o Claude Code e o comando é de fato liberado
-   ou bloqueado.
+3. O widget é só de status: ele mostra onde cada sessão está, mas você responde
+   no próprio terminal/sessão do Claude Code.
 
 Se nada acontecer, confira a seção de problemas abaixo.
 
